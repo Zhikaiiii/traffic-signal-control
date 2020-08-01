@@ -1,2 +1,2 @@
 # traffic-signal-control
-traffic signal control by Pytorch
+traffic signal control with Deep Reinforcement Learning with Pytorch
