@@ -7,6 +7,7 @@ from torch import nn
 from torch import optim
 from Replay_Buffer import Replay_Buffer
 from model import Model
+import copy
 
 class Base_Agent:
     def __init__(self, config):
@@ -34,17 +35,6 @@ class Base_Agent:
         self.batch_size = config['batch_size']
         self.buffer_size = config['buffer_size']
         self.replay_buffer = Replay_Buffer(self.buffer_size, self.batch_size, self.seed)
-
-    def set_random_seeds(self, random_seed):
-        """Sets all possible random seeds so results can be reproduced"""
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-        torch.manual_seed(random_seed)
-        random.seed(random_seed)
-        np.random.seed(random_seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(random_seed)
-            torch.cuda.manual_seed(random_seed)
 
     # 需要由子类重写
     def step(self, state):
@@ -81,7 +71,16 @@ class Base_Agent:
         """Updates the target network in the direction of the local network but by taking a step size
         less than one so the target network's parameter values trail the local networks. This helps stabilise training"""
         for target_param, current_param in zip(target_model.parameters(), current_model.parameters()):
+            # print(current_param.data)
             target_param.data.copy_(self.tau * current_param.data + (1.0 - self.tau) * target_param.data)
+        #     print(target_param.data)
+        #
+        # for target_param, current_param in zip(target_model.parameters(), current_model.parameters()):
+        #     print(target_param.data)
+        #     print(current_param.data)
+        #     break
+        # print(id(current_model.parameters()))
+        # print(id(target_model.parameters()))
 
     def reset(self):
         self.curr_step = 0
@@ -90,5 +89,6 @@ class Base_Agent:
     @staticmethod
     def copy_network(from_model, to_model):
         """Copies model parameters from from_model to to_model"""
-        for to_model, from_model in zip(to_model.parameters(), from_model.parameters()):
-            to_model.data.copy_(from_model.data.clone())
+        for to_para, from_para in zip(to_model.parameters(), from_model.parameters()):
+            to_para.data.copy_(from_para.data.clone())
+

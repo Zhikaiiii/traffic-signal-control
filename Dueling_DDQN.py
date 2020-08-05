@@ -12,13 +12,12 @@ class Dueling_DDQN(Base_Agent):
         self.q_network_current = self.create_model([self.num_states_phase, self.num_states_obs, self.num_states_lanes], self.num_actions+1)
         self.q_network_target = self.create_model([self.num_states_phase, self.num_states_obs, self.num_states_lanes], self.num_actions+1)
         # 复制网络
-        self.copy_network(self.q_network_current, self.q_network_target)
         self.optimizer = optim.Adam(self.q_network_current.parameters(), lr=1e-3)
+        self.copy_network(self.q_network_current, self.q_network_target)
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'max', patience=3, threshold=1e-6, factor=0.2)
 
     # 执行一个step，返回action
     def step(self, state):
-        # state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
         self.q_network_current.eval()
         with torch.no_grad():
             out = self.q_network_current(state)
@@ -40,38 +39,37 @@ class Dueling_DDQN(Base_Agent):
             actions_values_current = self.cal_current_actions_value(next_states, rewards, is_dones)
             actions_values_expected = self.cal_expected_actions_value(states, actions)
             loss = F.mse_loss(actions_values_expected, actions_values_current)
-            loss.requires_grad = True
             # 反向传播
             self.optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_value_(self.q_network_current.parameters(), 1)
+            # torch.nn.utils.clip_grad_value_(self.q_network_current.parameters(), 1)
             self.optimizer.step()
             # 更新target net
             self.soft_update_of_target_network(self.q_network_current, self.q_network_target)
 
     def cal_current_actions_value(self, next_states, rewards, is_dones):
         # self.q_network_current.eval()
-        with torch.no_grad():
-            out_next = self.q_network_current(next_states).detach()
-            advantages_values_next, state_values_next = out_next[:, :-1], out_next[:, -1]
+        # with torch.no_grad():
+        out_next = self.q_network_current(next_states).detach()
+        advantages_values_next, state_values_next = out_next[:, :-1], out_next[:, -1]
         # 利用Q选出行动价值最大的行动
         selected_actions_next = advantages_values_next.argmax(1)
         # 利用Q'计算行动价值
         # self.q_network_target.eval()
-        with torch.no_grad():
-            out_traget = self.q_network_target(next_states)
-            advantages_values_traget, state_values_target = out_traget[:, :-1], out_traget[:, -1]
-        avg_advantages_values_target = torch.mean(advantages_values_traget, dim=1)
-        actions_values_target = torch.unsqueeze(state_values_target, 1) + advantages_values_traget - \
+        # with torch.no_grad():
+        out_target = self.q_network_target(next_states)
+        advantages_values_target, state_values_target = out_target[:, :-1], out_target[:, -1]
+        avg_advantages_values_target = torch.mean(advantages_values_target, dim=1)
+        actions_values_target = torch.unsqueeze(state_values_target, 1) + advantages_values_target - \
                                 torch.unsqueeze(avg_advantages_values_target, dim=1)
         action_values_next = torch.gather(actions_values_target, 1, torch.unsqueeze(selected_actions_next,1))
         action_values_current = rewards.unsqueeze(1) + self.gamma*action_values_next*(1-is_dones.unsqueeze(1))
         return action_values_current
 
     def cal_expected_actions_value(self, states, actions):
-        with torch.no_grad():
-            out = self.q_network_current(states)
-            advantages_values, state_values = out[:, :-1], out[:, -1]
+        # with torch.no_grad():
+        out = self.q_network_current(states)
+        advantages_values, state_values = out[:, :-1], out[:, -1]
         avg_advantages_values = torch.mean(advantages_values, dim=1)
         actions_values = torch.unsqueeze(state_values, 1) + advantages_values - \
                                 torch.unsqueeze(avg_advantages_values, dim=1)
@@ -81,3 +79,11 @@ class Dueling_DDQN(Base_Agent):
     # 当奖励函数不再上升时降低学习率
     def update_lr(self, metric):
         self.scheduler.step(metric)
+
+    def set_q_network(self, model_name):
+        self.q_network_current = torch.load(model_name)
+        self.copy_network(self.q_network_current, self.q_network_target)
+        self.epsilon = 0.01
+
+    def get_q_network(self):
+        return self.q_network_current

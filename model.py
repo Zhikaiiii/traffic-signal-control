@@ -10,7 +10,7 @@ class Model(nn.Module):
         self.output_dim = output_dim
         self.linear_phase = nn.Linear(self.phase_dim, 20)
         self.linear_state = nn.Linear(self.state_dim, 20)
-        self.linear_final = nn.Linear(20* (self.lane_num + 1), self.output_dim)
+        self.linear_final = nn.Linear(20 * (self.lane_num + 1), self.output_dim)
         self.relu = nn.ReLU()
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
