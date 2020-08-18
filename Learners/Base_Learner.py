@@ -1,15 +1,10 @@
-import logging
-import os
 import torch
 import numpy as np
-import random
-from torch import nn
-from torch import optim
 from Replay_Buffer import Replay_Buffer
-from model import Model
-import copy
+from Models.Basic_Model import Embedding_Layer
 
-class Base_Agent:
+
+class Base_Learner:
     def __init__(self, config):
 
         self.seed = config['sim_seed']
@@ -18,6 +13,7 @@ class Base_Agent:
         self.update_step = config['update_step']
         self.curr_step = 0
 
+        self.agent_type = config['agent_type']
         # 超参数
         self.tau = config['tau']
         self.gamma = config['gamma']
@@ -42,11 +38,15 @@ class Base_Agent:
         raise ValueError("Step needs to be implemented by the agent")
 
     # 创建模型
-    def create_model(self, input_dim, output_dim):
-        return Model(input_dim, output_dim)
+    def create_model(self,input_dim, output_dim):
+        # if self.agent_type == 'IQL':
+        model = Embedding_Layer(input_dim, output_dim).to(self.device)
+        # else:
+        #     model = Model(embedding, attention, input_dim, output_dim).to(self.device)
+        return model
 
     def select_actions(self, actions):
-        actions = actions.numpy()
+        actions = actions.cpu().numpy()
         if np.random.random() < self.epsilon:
             selected_action = np.random.randint(0, self.num_actions)
         else:
@@ -62,25 +62,8 @@ class Base_Agent:
         return states, actions, rewards, next_states, is_dones
 
     def update_epsilon_exploration(self, current_episode):
-        if self.epsilon <= 0.02:
-            return
-        else:
-            self.epsilon = self.epsilon_init * (1 - 2 * current_episode/ self.total_episodes)
+        self.epsilon = max(0.01, 0.01 + self.epsilon_init * (1 - 2 * current_episode/ self.total_episodes))
 
-    def soft_update_of_target_network(self, current_model, target_model):
-        """Updates the target network in the direction of the local network but by taking a step size
-        less than one so the target network's parameter values trail the local networks. This helps stabilise training"""
-        for target_param, current_param in zip(target_model.parameters(), current_model.parameters()):
-            # print(current_param.data)
-            target_param.data.copy_(self.tau * current_param.data + (1.0 - self.tau) * target_param.data)
-        #     print(target_param.data)
-        #
-        # for target_param, current_param in zip(target_model.parameters(), current_model.parameters()):
-        #     print(target_param.data)
-        #     print(current_param.data)
-        #     break
-        # print(id(current_model.parameters()))
-        # print(id(target_model.parameters()))
 
     def reset(self):
         self.curr_step = 0
@@ -92,3 +75,6 @@ class Base_Agent:
         for to_para, from_para in zip(to_model.parameters(), from_model.parameters()):
             to_para.data.copy_(from_para.data.clone())
 
+    def soft_update_of_target_network(self, current_model, target_model):
+        for target_param, current_param in zip(target_model.parameters(), current_model.parameters()):
+            target_param.data.copy_(self.tau * current_param.data + (1.0 - self.tau) * target_param.data)

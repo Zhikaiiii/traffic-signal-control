@@ -20,20 +20,21 @@ class Replay_Buffer:
         if not batch_size:
             batch_size = self.batch_size
         experiences = random.sample(self.memory, k=batch_size)
-        states_obs, states_phase, actions, rewards, next_states_obs, next_states_phase, is_dones = \
-            [], [], [], [], [], [], []
+        states, actions, rewards, next_states, is_dones = [], [], [], [], []
         for e in experiences:
-            states_obs.append(e[0][0])
-            states_phase.append(e[0][1])
+            # states_obs.append(e[0][0])
+            states.append(e[0])
             actions.append(e[1])
             rewards.append(e[2])
-            next_states_obs.append(e[3][0])
-            next_states_phase.append(e[3][1])
+            # next_states_obs.append(e[3][0])
+            next_states.append(e[3])
             is_dones.append(e[4])
-        states = [np.asarray(states_obs), np.asarray(states_phase)]
+        # states = [np.asarray(states_obs), np.asarray(states_phase)]
+        states = np.concatenate(states)
         actions = np.asarray(actions)
         rewards = np.asarray(rewards)
-        next_states = [np.asarray(next_states_obs), np.asarray(next_states_phase)]
+        next_states = np.concatenate(next_states)
+        # next_states = [np.asarray(next_states_obs), np.asarray(next_states_phase)]
         is_dones = np.asarray(is_dones)
         # states = torch.from_numpy(np.asarray(states)).float().to(self.device)
         # actions = torch.from_numpy(np.asarray(actions)).float().to(self.device)

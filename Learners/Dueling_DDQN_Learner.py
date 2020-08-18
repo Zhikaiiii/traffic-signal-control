@@ -1,14 +1,15 @@
 import torch
 from torch import optim
 import torch.nn.functional as F
-import numpy as np
-from Base_Agent import Base_Agent
+from Learners.Base_Learner import Base_Learner
 
 
-class Dueling_DDQN(Base_Agent):
+class Dueling_DDQN_Learner(Base_Learner):
     def __init__(self, config):
-        Base_Agent.__init__(self, config)
+        Base_Learner.__init__(self, config)
         # 创建Q和Q’
+        # self.q_network_current = self.create_model(embedding, attention, 20, self.num_actions+1)
+        # self.q_network_target = self.create_model(embedding, attention, 20, self.num_actions+1)
         self.q_network_current = self.create_model([self.num_states_phase, self.num_states_obs, self.num_states_lanes], self.num_actions+1)
         self.q_network_target = self.create_model([self.num_states_phase, self.num_states_obs, self.num_states_lanes], self.num_actions+1)
         # 复制网络
@@ -42,7 +43,7 @@ class Dueling_DDQN(Base_Agent):
             # 反向传播
             self.optimizer.zero_grad()
             loss.backward()
-            # torch.nn.utils.clip_grad_value_(self.q_network_current.parameters(), 1)
+            torch.nn.utils.clip_grad_value_(self.q_network_current.parameters(), 1)
             self.optimizer.step()
             # 更新target net
             self.soft_update_of_target_network(self.q_network_current, self.q_network_target)
@@ -80,10 +81,17 @@ class Dueling_DDQN(Base_Agent):
     def update_lr(self, metric):
         self.scheduler.step(metric)
 
-    def set_q_network(self, model_name):
+    def load_q_network(self, model_name):
         self.q_network_current = torch.load(model_name)
         self.copy_network(self.q_network_current, self.q_network_target)
         self.epsilon = 0.01
+
+    def set_q_network(self, q_network_current, q_network_target):
+        self.q_network_current = q_network_current
+        self.q_network_target = q_network_target
+        # 复制网络
+        self.optimizer = optim.RMSprop(self.q_network_current.parameters(), lr=1e-3)
+        self.copy_network(self.q_network_current, self.q_network_target)
 
     def get_q_network(self):
         return self.q_network_current
