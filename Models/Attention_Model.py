@@ -4,51 +4,24 @@ import torch.nn as nn
 import numpy as np
 from Models.Basic_Model import Embedding_Layer, Multi_Attention_Layer
 
-# class Embedding_Layer(nn.Module):
-#     def __init__(self, input_dim, output_dim):
-#         super(Embedding_Layer, self).__init__()
-#         self.phase_dim, self.state_dim, self.lane_num = input_dim[0], input_dim[1], input_dim[2]
-#         self.output_dim = output_dim
-#         self.linear_phase = nn.Linear(self.phase_dim, 32)
-#         self.linear_state = nn.Linear(self.state_dim, 32)
-#         self.linear_final = nn.Linear(32 * (self.lane_num + 1), self.output_dim)
-#         self.relu1 = nn.ReLU()
-#         self.relu2 = nn.ReLU()
-#         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-#
-#     def forward(self, x):
-#         obs, phase = x[:, :-1], x[:, -1:]
-#         obs = torch.from_numpy(obs).float().to(self.device)
-#         phase = torch.from_numpy(phase).float().to(self.device)
-#         batch_size = obs.shape[0]
-#         x1 = self.linear_state(obs)
-#         x2 = self.linear_phase(phase)
-#         x1 = x1.view(batch_size, -1)
-#         x2 = x2.view(batch_size, -1)
-#         x = torch.cat((x1, x2), dim=1)
-#         # out = self.relu1(x)
-#         out = self.linear_final(x)
-#         # out = self.relu2(out)
-#         return out
-#
 
-
-class Model(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_dim=None, embedding_layer=None, attention_layer=None):
+class Attention_Model(nn.Module):
+    def __init__(self, input_dim, output_dim, hidden_dim):
         super().__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.hidden_dim = hidden_dim
-        self.pre_train = True
+        self.pre_train = False
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        if embedding_layer:
-            self.embedding = embedding_layer
-            self.attention = attention_layer
-            self.linear1 = nn.Linear(self.input_dim, self.output_dim)
-        else:
-            self.embedding = Embedding_Layer(self.input_dim, self.hidden_dim)
-            self.attention = Multi_Attention_Layer(self.hidden_dim)
-            self.linear1 = nn.Linear(self.hidden_dim, self.output_dim)
+        # if embedding_layer:
+        #     self.embedding = embedding_layer
+        #     self.attention = attention_layer
+        #     self.linear1 = nn.Linear(self.input_dim, self.output_dim)
+        # else:
+        self.embedding = Embedding_Layer(self.input_dim, self.hidden_dim)
+        self.attention = Multi_Attention_Layer(self.hidden_dim)
+        self.relu = nn.ReLU()
+        self.linear1 = nn.Linear(self.hidden_dim, self.output_dim)
             # for para in self.attention.parameters():
             #     para.requires_grad = False
 
@@ -82,6 +55,7 @@ class Model(nn.Module):
         neighbors_embedding = neighbors_embedding.permute((1, 0, 2))
         out = self.attention(agent_embedding, neighbors_embedding)
         out = out.squeeze(0)
+        out = self.relu(out)
         # out = self.attention(agent_state, neighbors_state)
         out = self.linear1(out)
         return out
@@ -92,3 +66,9 @@ class Model(nn.Module):
             para.requires_grad = False
         for para in self.attention.parameters():
             para.requires_grad = True
+
+    def set_layer_para(self, embedding_layer=None, attention_layer=None):
+        if embedding_layer is not None:
+            self.embedding = embedding_layer
+        if attention_layer is not None:
+            self.attention = attention_layer

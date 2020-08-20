@@ -30,7 +30,7 @@ class Base_Learner:
         # Replay Buffer相关参数
         self.batch_size = config['batch_size']
         self.buffer_size = config['buffer_size']
-        self.replay_buffer = Replay_Buffer(self.buffer_size, self.batch_size, self.seed)
+        self.replay_buffer = Replay_Buffer(self.buffer_size, self.batch_size)
 
     # 需要由子类重写
     def step(self, state):
@@ -63,7 +63,6 @@ class Base_Learner:
 
     def update_epsilon_exploration(self, current_episode):
         self.epsilon = max(0.01, 0.01 + self.epsilon_init * (1 - 2 * current_episode/ self.total_episodes))
-
 
     def reset(self):
         self.curr_step = 0

@@ -7,10 +7,12 @@ import logging
 from sumolib import checkBinary
 from utils import get_configuration
 from tqdm import tqdm
-from Agents.IQL_Attention_Agents import IQL_Attention_Agents
-from Agents.IQL_Agents import IQL_Agents
+from Agents.Attention_Agents import Attention_Agents, Double_Attention_Agents
+from Agents.Basic_Agents import Basic_Agents
 import random
 import matplotlib.pyplot as plt
+import warnings
+
 
 # 路网结构
 NEIGHBOR_MAP = {'I0': ['I1', 'I3'],
@@ -51,31 +53,33 @@ class TSC_Env:
         self.para_config = para_config
         self.node_name = []
         self.node_dict = {}
-        self.node_agent = {}
         # store local state and action of intersection
         self.curr_action = {}
-        self.curr_obs = {}
-        self.pre_obs = {}
-        # road network structure
+        self.obs = {}
+        # self.curr_obs = {}
+        # self.pre_obs = {}
+        # road network structure and parameter
         self.phase_map = PHASE_MAP
         self.neighbor_map = NEIGHBOR_MAP
-        # parameter
-        self.curr_step = 0
-        self.curr_episode = 0
-        self.max_step = para_config['max_step']
-        self.sim_seed = para_config['sim_seed']
         self.yellow_duration = para_config['yellow_duration']
         self.green_duration = para_config['green_duration']
         self.control_interval = self.yellow_duration + self.green_duration
         self.coef_reward = para_config['coef_reward']
-        self.num_episode = para_config['total_episodes']
-        self.agent_type = para_config['agent_type']
         self.num_states_phase = 4
         self.num_states_obs = 4
         self.num_states_lanes = 12
         self.num_actions = 4
-        # network
+        self.neighbor_num = 5
+        # simulation parameter
+        self.curr_step = 0
+        self.curr_episode = 0
+        self.curr_control_step = 0
+        self.num_episode = para_config['total_episodes']
+        self.agent_type = para_config['agent_type']
+        self.max_step = para_config['max_step']
+        self.sim_seed = para_config['sim_seed']
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.seq_len = para_config['seq_len'] + 1 if self.agent_type == 'IQL_Double_Attention' else 2
         # 记录路网指标
         self.split_ratio = 0.75
         self.split = int(self.max_step * self.split_ratio // self.control_interval)
@@ -92,6 +96,7 @@ class TSC_Env:
         self.train_episode_avg_reward = []
         self.test_episode_reward = []
         self.test_episode_avg_reward = []
+        # set traci
         if gui:
             app = 'sumo-gui'
         else:
@@ -104,13 +109,16 @@ class TSC_Env:
         command += ['--duration-log.disable', 'True']
         traci.start(command)
         self._init_node()
+        # set agent
         input_dim = [self.num_states_phase, self.num_states_obs, self.num_states_lanes]
         hidden_dim = 32
         output_dim = self.num_actions + 1
         if self.agent_type == 'IQL':
-            self.agents = IQL_Agents(self.para_config, len(self.node_name))
+            self.agents = Basic_Agents(self.para_config, len(self.node_name))
+        elif self.agent_type == 'IQL_Attention':
+            self.agents = Attention_Agents(self.para_config, len(self.node_name), input_dim, hidden_dim, output_dim)
         else:
-            self.agents = IQL_Attention_Agents(self.para_config, len(self.node_name), input_dim, hidden_dim, output_dim)
+            self.agents = Double_Attention_Agents(self.para_config, len(self.node_name), input_dim, hidden_dim, output_dim)
 
     def _init_node(self):
         for node_name in traci.trafficlight.getIDList():
@@ -128,8 +136,14 @@ class TSC_Env:
             self.node_dict[node_name].lanes_in = traci.trafficlight.getControlledLanes(node_name)
             # self.node_agent[node_name] = Dueling_DDQN(self.para_config, self.embedding, self.attention)
             self.curr_action[node_name] = -1
-            self.curr_obs[node_name] = self._get_local_observation(node_name)
-            self.pre_obs[node_name] = self.curr_obs[node_name]
+            obs = self._get_local_observation(node_name)
+            obs_size = (self.seq_len, obs.shape[0], obs.shape[1])
+            self.obs[node_name] = np.zeros(obs_size)
+            # for j in range(self.seq_len):
+            #     self.obs[node_name].append(np.zeros_like(obs))
+            self.obs[node_name][-1] = obs
+            # self.curr_obs[node_name] = self._get_local_observation(node_name)
+            # self.pre_obs[node_name] = self.curr_obs[node_name]
         self.node_name = sorted(list(self.node_dict.keys()))
 
     def step_act(self):
@@ -152,7 +166,6 @@ class TSC_Env:
         for i, node in enumerate(self.node_name):
             obs = self._get_observation(node)
             action = self.agents.get_agent(i).step(obs)
-            # action = self.node_agent[node].step(obs)
             if self.curr_action[node] == action:
                 self._set_green_phase(node)
             else:
@@ -168,9 +181,12 @@ class TSC_Env:
         reward = []
         # update local observation， get local reward
         for node in self.node_name:
-            self.pre_obs[node] = self.curr_obs[node]
-            self.curr_obs[node] = self._get_local_observation(node)
-            node_reward = self._get_reward(self.curr_obs[node])
+            # self.pre_obs[node] = self.curr_obs[node]
+            # self.curr_obs[node] = self._get_local_observation(node)
+            self.obs[node][0:-1] = self.obs[node][1:]
+            self.obs[node][-1] = self._get_local_observation(node)
+            # node_reward = self._get_reward(self.curr_obs[node])
+            node_reward = self._get_reward(self.obs[node][-1])
             reward.append(node_reward[-1])
         # get next state
         for i, node in enumerate(self.node_name):
@@ -182,7 +198,6 @@ class TSC_Env:
             if self.curr_step / self.max_step < 0.75:
                 self.agents.get_agent(i).store_experience(obs, self.curr_action[node], reward[i], next_obs, is_done)
                 self.agents.get_agent(i).learn()
-            # self.curr_obs[node] = next_obs
         self._measure_step(reward)
         return is_done
 
@@ -224,7 +239,7 @@ class TSC_Env:
         waiting_time, speed, queue_length = [], [], []
         for node in self.node_name:
             # obs, phase = self._get_local_observation(node)
-            obs, phase = self.curr_obs[node][:-1], self.curr_obs[node][-1]
+            obs, phase = self.obs[node][-1, :-1], self.obs[node][-1, -1]
             waiting_time.append(np.sum(obs[:, 0]))
             speed.append(np.mean(obs[:, 1]))
             queue_length.append(np.sum(obs[:, 2]))
@@ -268,21 +283,32 @@ class TSC_Env:
 
     # get observation based on agent-type
     def _get_observation(self, node_name, pre=False):
-        state = self.curr_obs
-        if pre:
-            state = self.pre_obs
+        # state = self.curr_obs
+        #     state = self.pre_obs
+        pre = int(pre)
         if self.agent_type == 'IQL':
-            obs = state[node_name]
+            obs = np.asarray(self.obs[node_name][1-pre: self.seq_len-pre])
         else:
             # obs = np.zeros((5, state[node_name].shape[0], state[node_name].shape[1]))
-            obs = [state[node_name]]
+            # obs = [np.asarray(state[node_name])]
+            obs = [np.asarray(self.obs[node_name][1-pre: self.seq_len-pre])]
             for neighbor in self.node_dict[node_name].neighbor:
-                obs.append(state[neighbor])
+                # obs.append(state[neighbor])
+                obs.append(np.asarray(self.obs[neighbor][1-pre: self.seq_len-pre]))
             obs = np.stack(obs, axis=-1)
-            if obs.shape[-1] < 5:
-                tmp = np.zeros((obs.shape[0], obs.shape[1], 5 - obs.shape[2]))
+            if obs.shape[-1] < self.neighbor_num:
+                tmp = np.zeros((obs.shape[0], obs.shape[1], obs.shape[2], self.neighbor_num - obs.shape[3]))
                 obs = np.concatenate((obs, tmp), axis=-1)
-        obs = np.expand_dims(obs, axis=0)
+            # if self.agent_type == 'IQL_LSTM_Attention':
+            #     obs_lstm = [self.agents.get_agent(i).get_hidden_state()]
+            #     for neighbor in self.node_dict[node_name].neighbor:
+            #         idx = self.node_name.index(neighbor)
+            #         obs_lstm.append(self.agents.get_agent(idx).get_hidden_state())
+            #     obs_lstm = np.stack(obs_lstm, axis=-1)
+            #     obs_all = [obs, obs_lstm]
+            #     return obs_all
+        if self.agent_type == 'IQL_Double_Attention':
+            obs = np.expand_dims(obs, axis=0)
         return obs
 
     def _get_reward(self, obs):
@@ -389,10 +415,6 @@ class TSC_Env:
         self.curr_episode += 1
         # if self.curr_episode > 50 and self.agent_type != 'IQL':
         #     self.agents.change_mode()
-        # if self.curr_episode == self.num_episode:
-        #     for node in self.node_name:
-        #         model_name = './models/model_' + node + self.name + '.pkl'
-        #         torch.save(self.node_agent[node].get_q_network(), model_name)
         self.curr_step = 0
         self.step_reward = []
         self.step_sum_waiting_time = []
@@ -419,12 +441,11 @@ class TSC_Env:
             # else:
             #     self.agents.get_agent(i).update_epsilon_exploration(self.curr_episode)
             self.agents.get_agent(i).update_epsilon_exploration(self.curr_episode)
-            # self.node_agent[node_name].update_lr(np.mean(episode_reward))
 
-    def set_agent(self):
-        for node in self.node_name:
-            model_name = './models/model_' + node + '.pkl'
-            self.node_agent[node].load_q_network(model_name)
+    # def set_agent(self):
+    #     for node in self.node_name:
+    #         model_name = './models/model_' + node + '.pkl'
+    #         self.node_agent[node].load_q_network(model_name)
 
 
 # 设置随机数种子
@@ -443,6 +464,7 @@ def set_random_seeds(random_seed):
 if __name__ == '__main__':
     para_config = get_configuration('para_config.ini')
     total_episodes = para_config['total_episodes']
+    warnings.filterwarnings('ignore')
     # total_episodes = 3
     sim_seed = para_config['sim_seed']
     set_random_seeds(sim_seed)

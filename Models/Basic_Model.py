@@ -34,13 +34,11 @@ class Embedding_Layer(nn.Module):
 
 
 class RNN_Layer(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim, hidden_dim):
         super(RNN_Layer, self).__init__()
         self.linear1 = nn.Linear(input_dim, hidden_dim)
         self.lstm = nn.LSTMCell(hidden_dim, hidden_dim)
-        self.linear2 = nn.Linear(hidden_dim, output_dim)
         self.relu1 = nn.ReLU()
-        self.relu2 = nn.ReLU()
 
     def forward(self, x, h, c):
         x = self.relu1(self.linear1(x))
@@ -53,12 +51,13 @@ class Multi_Attention_Layer(nn.Module):
         super().__init__()
         self.embed_dim = embed_dim
         self.n_heads = n_heads
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.attention = nn.MultiheadAttention(self.embed_dim, self.n_heads)
 
     def _get_key_padding_mask(self, key):
         key_len = key.shape[0]
         batch_size = key.shape[1]
-        key_padding_mask = torch.zeros((batch_size, key_len), dtype=torch.bool)
+        key_padding_mask = torch.zeros((batch_size, key_len), dtype=torch.uint8).to(self.device)
         for i in range(batch_size):
             for j in range(key_len):
                 if torch.equal(key[j, i, :], torch.zeros_like(key[j, i, :])):
@@ -67,6 +66,8 @@ class Multi_Attention_Layer(nn.Module):
 
     def forward(self, x, neighbors):
         key_padding_mask = self._get_key_padding_mask(neighbors)
+        if key_padding_mask.all():
+            return torch.zeros_like(x).to(self.device)
         out, attention_score = self.attention(x, neighbors, neighbors, key_padding_mask=key_padding_mask)
         return out
 

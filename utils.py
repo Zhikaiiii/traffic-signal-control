@@ -19,6 +19,7 @@ def get_configuration(config_file):
     config['yellow_duration'] = content['simulation'].getint('yellow_duration')
     config['sim_seed'] = content['simulation'].getint('sim_seed')
     config['agent_type'] = content['simulation']['agent_type']
+    config['seq_len'] = content['simulation'].getint('seq_len')
 
     # memory parameter
     config['buffer_size'] = content['memory'].getint('buffer_size')
