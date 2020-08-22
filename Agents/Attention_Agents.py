@@ -14,8 +14,8 @@ class Attention_Agents(Basic_Agents):
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        # self.q_network = Model(self.input_dim, self.output_dim, self.hidden_dim).to(self.device)
-        # self.q_network_target = Model(self.input_dim, self.output_dim, self.hidden_dim).to(self.device)
+        # self.q_network = Attention_Model(self.input_dim, self.output_dim, self.hidden_dim).to(self.device)
+        # self.q_network_target = Attention_Model(self.input_dim, self.output_dim, self.hidden_dim).to(self.device)
         self._init_agents()
 
     def _init_agents(self):
@@ -33,6 +33,8 @@ class Attention_Agents(Basic_Agents):
             q_network_target.set_layer_para(self.embedding_target, self.attention_target)
             self.agents[i].set_q_network(q_network, q_network_target)
 
+    def get_attention_score(self, i):
+        return self.agents[i].get_q_network().get_attention_score()
 
 class Double_Attention_Agents(Attention_Agents):
     def __init__(self, config, num_agents, input_dim, hidden_dim, output_dim):

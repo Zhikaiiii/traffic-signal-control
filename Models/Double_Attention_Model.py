@@ -31,8 +31,10 @@ class Double_Attention_Model(Attention_Model):
             temporal_embedding = torch.zeros((seq_len, batch_size, self.hidden_dim)).to(self.device)
             for j in range(seq_len):
                 temporal_embedding[j, :] = self.embedding(state[:, i, j]).unsqueeze(1).permute((1, 0, 2))
-            spatial_embedding[i, :] = self.temporal_attention(agent_embedding, temporal_embedding)
-        out = self.attention(agent_embedding, spatial_embedding).squeeze(0)
+            spatial_embedding[i, :], _ = self.temporal_attention(agent_embedding, temporal_embedding)
+        agent_embedding_new = spatial_embedding[0:1].clone()
+        out, _ = self.attention(agent_embedding_new, spatial_embedding)
+        out = out.squeeze(0)
         out = self.relu(out)
         out = self.linear1(out)
         return out

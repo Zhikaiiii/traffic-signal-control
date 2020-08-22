@@ -96,6 +96,11 @@ class TSC_Env:
         self.train_episode_avg_reward = []
         self.test_episode_reward = []
         self.test_episode_avg_reward = []
+        # attention_score
+        # Grid9 center intersection
+        self.attention_score = []
+        self.episode_attention_score = []
+
         # set traci
         if gui:
             app = 'sumo-gui'
@@ -171,6 +176,10 @@ class TSC_Env:
             else:
                 self._set_yellow_phase(node)
             self.curr_action[node] = action
+            # get attention_score
+            if i == 4:
+                self.attention_score.append(self.agents.get_attention_score(i)[:, 0])
+
         # 执行黄灯
         self._simulate(self.yellow_duration)
         for node in self.node_dict:
@@ -374,6 +383,17 @@ class TSC_Env:
         plt.savefig(fig_name)
         plt.show()
 
+        plt.figure()
+        plt.xlabel('episode')
+        plt.ylabel('attention score')
+        labels = ['I4', 'I1', 'I3', 'I5', 'I7']
+        all_attention_score = np.stack(self.episode_attention_score, axis=0)
+        for i in range(all_attention_score.shape[1]):
+            plt.plot(x, all_attention_score[:, i], label=labels[i])
+        plt.legend()
+        fig_name = './Data/logs/attention_' + self.name + '.png'
+        plt.savefig(fig_name)
+        plt.show()
         # plt.figure()
         # plt.xlabel('episode')
         # plt.ylabel('mean')
@@ -420,6 +440,22 @@ class TSC_Env:
         self.step_sum_waiting_time = []
         self.step_sum_queue_length = []
         self.step_avg_speed = []
+        attention_score = np.mean(np.concatenate(self.attention_score), axis=0)
+        self.episode_attention_score.append(attention_score)
+
+        if self.curr_episode == self.num_episode:
+            step_attention_score = np.concatenate(self.attention_score, axis=0)
+            plt.figure()
+            plt.xlabel('step')
+            plt.ylabel('attention score')
+            labels = ['I4', 'I1', 'I3', 'I5', 'I7']
+            for i in range(step_attention_score.shape[1]):
+                plt.plot(step_attention_score[:,i], label=labels[i])
+            plt.legend()
+            fig_name = './Data/logs/step_attention_' + self.name + '.png'
+            plt.savefig(fig_name)
+            plt.show()
+        self.attention_score = []
         if gui:
             app = 'sumo-gui'
         else:
@@ -482,7 +518,7 @@ if __name__ == '__main__':
         print('queue_length', queue_length)
         # reward_total.append(reward)
         road_network.reset()
-    road_network.output_data()
+    # road_network.output_data()
     road_network.close()
     #
     # road_network_test = TSC_Env('Grid9', para_config, gui=True)

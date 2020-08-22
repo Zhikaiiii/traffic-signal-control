@@ -22,6 +22,8 @@ class Attention_Model(nn.Module):
         self.attention = Multi_Attention_Layer(self.hidden_dim)
         self.relu = nn.ReLU()
         self.linear1 = nn.Linear(self.hidden_dim, self.output_dim)
+
+        self.attention_score = None
             # for para in self.attention.parameters():
             #     para.requires_grad = False
 
@@ -53,9 +55,10 @@ class Attention_Model(nn.Module):
                                                  self.embedding(neighbors_state[:, i]).unsqueeze(1)), dim=1)
         agent_embedding = agent_embedding.permute((1, 0, 2))
         neighbors_embedding = neighbors_embedding.permute((1, 0, 2))
-        out = self.attention(agent_embedding, neighbors_embedding)
+        out, attention_score = self.attention(agent_embedding, neighbors_embedding)
         out = out.squeeze(0)
         out = self.relu(out)
+        self.attention_score = attention_score
         # out = self.attention(agent_state, neighbors_state)
         out = self.linear1(out)
         return out
@@ -72,3 +75,6 @@ class Attention_Model(nn.Module):
             self.embedding = embedding_layer
         if attention_layer is not None:
             self.attention = attention_layer
+
+    def get_attention_score(self):
+        return self.attention_score.cpu().detach().numpy()

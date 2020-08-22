@@ -57,7 +57,7 @@ class Multi_Attention_Layer(nn.Module):
     def _get_key_padding_mask(self, key):
         key_len = key.shape[0]
         batch_size = key.shape[1]
-        key_padding_mask = torch.zeros((batch_size, key_len), dtype=torch.uint8).to(self.device)
+        key_padding_mask = torch.zeros((batch_size, key_len), dtype=torch.bool).to(self.device)
         for i in range(batch_size):
             for j in range(key_len):
                 if torch.equal(key[j, i, :], torch.zeros_like(key[j, i, :])):
@@ -67,9 +67,9 @@ class Multi_Attention_Layer(nn.Module):
     def forward(self, x, neighbors):
         key_padding_mask = self._get_key_padding_mask(neighbors)
         if key_padding_mask.all():
-            return torch.zeros_like(x).to(self.device)
+            return torch.zeros_like(x).to(self.device), None
         out, attention_score = self.attention(x, neighbors, neighbors, key_padding_mask=key_padding_mask)
-        return out
+        return out, attention_score
 
 
 # Single Attention Layer
