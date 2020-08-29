@@ -7,8 +7,9 @@ import logging
 from sumolib import checkBinary
 from utils import get_configuration
 from tqdm import tqdm
-from Agents.Attention_Agents import Attention_Agents, Double_Attention_Agents
+from Agents.Attention_Agents import Attention_Agents
 from Agents.Basic_Agents import Basic_Agents
+from Agents.Double_Attention_Agents import Double_Attention_Agents
 import random
 import matplotlib.pyplot as plt
 import warnings
@@ -119,11 +120,14 @@ class TSC_Env:
         hidden_dim = 32
         output_dim = self.num_actions + 1
         if self.agent_type == 'IQL':
-            self.agents = Basic_Agents(self.para_config, len(self.node_name))
+            self.agents = Basic_Agents(self.para_config, len(self.node_name), input_dim, hidden_dim, output_dim)
         elif self.agent_type == 'IQL_Attention':
-            self.agents = Attention_Agents(self.para_config, len(self.node_name), input_dim, hidden_dim, output_dim)
+            self.agents = Attention_Agents(self.para_config, len(self.node_name), input_dim, hidden_dim, output_dim,
+                                           self.neighbor_map, self.node_name)
         else:
-            self.agents = Double_Attention_Agents(self.para_config, len(self.node_name), input_dim, hidden_dim, output_dim)
+            self.agents = Double_Attention_Agents(self.para_config, len(self.node_name), input_dim, hidden_dim,
+                                                  output_dim, self.seq_len,
+                                                  self.neighbor_map, self.node_name)
 
     def _init_node(self):
         for node_name in traci.trafficlight.getIDList():
@@ -168,17 +172,19 @@ class TSC_Env:
     # 是env里面切换一次信号灯状态
     def step(self):
         # get observation
+        obs = self._get_observation()
+        action = self.agents.step(obs)
         for i, node in enumerate(self.node_name):
-            obs = self._get_observation(node)
-            action = self.agents.get_agent(i).step(obs)
-            if self.curr_action[node] == action:
+            # obs = self._get_observation(node)
+            # action = self.agents.get_agent(i).step(obs)
+            if self.curr_action[node] == action[i]:
                 self._set_green_phase(node)
             else:
                 self._set_yellow_phase(node)
-            self.curr_action[node] = action
+            self.curr_action[node] = action[i]
             # get attention_score
-            if i == 4:
-                self.attention_score.append(self.agents.get_attention_score(i)[:, 0])
+            # if i == 4:
+            #     self.attention_score.append(self.agents.get_attention_score(i)[:, 0])
 
         # 执行黄灯
         self._simulate(self.yellow_duration)
@@ -198,15 +204,21 @@ class TSC_Env:
             node_reward = self._get_reward(self.obs[node][-1])
             reward.append(node_reward[-1])
         # get next state
-        for i, node in enumerate(self.node_name):
-            obs = self._get_observation(node, True)
-            next_obs = self._get_observation(node)
-            if self.max_step == self.curr_step:
-                is_done = True
-            # 每个episode的后25%是测试集
-            if self.curr_step / self.max_step < 0.75:
-                self.agents.get_agent(i).store_experience(obs, self.curr_action[node], reward[i], next_obs, is_done)
-                self.agents.get_agent(i).learn()
+        next_obs = self._get_observation()
+        if self.max_step == self.curr_step:
+            is_done = True
+        if self.curr_step / self.max_step < 0.75:
+            self.agents.store_experience(obs, action, reward, next_obs, is_done)
+            self.agents.learn()
+        # for i, node in enumerate(self.node_name):
+        #     obs = self._get_observation(node, True)
+        #     next_obs = self._get_observation(node)
+        #     if self.max_step == self.curr_step:
+        #         is_done = True
+        #     # 每个episode的后25%是测试集
+        #     if self.curr_step / self.max_step < 0.75:
+        #         self.agents.get_agent(i).store_experience(obs, self.curr_action[node], reward[i], next_obs, is_done)
+        #         self.agents.get_agent(i).learn()
         self._measure_step(reward)
         return is_done
 
@@ -290,35 +302,41 @@ class TSC_Env:
         obs = np.concatenate((obs, phase))
         return obs
 
-    # get observation based on agent-type
-    def _get_observation(self, node_name, pre=False):
-        # state = self.curr_obs
-        #     state = self.pre_obs
-        pre = int(pre)
-        if self.agent_type == 'IQL':
-            obs = np.asarray(self.obs[node_name][1-pre: self.seq_len-pre])
-        else:
-            # obs = np.zeros((5, state[node_name].shape[0], state[node_name].shape[1]))
-            # obs = [np.asarray(state[node_name])]
-            obs = [np.asarray(self.obs[node_name][1-pre: self.seq_len-pre])]
-            for neighbor in self.node_dict[node_name].neighbor:
-                # obs.append(state[neighbor])
-                obs.append(np.asarray(self.obs[neighbor][1-pre: self.seq_len-pre]))
-            obs = np.stack(obs, axis=-1)
-            if obs.shape[-1] < self.neighbor_num:
-                tmp = np.zeros((obs.shape[0], obs.shape[1], obs.shape[2], self.neighbor_num - obs.shape[3]))
-                obs = np.concatenate((obs, tmp), axis=-1)
-            # if self.agent_type == 'IQL_LSTM_Attention':
-            #     obs_lstm = [self.agents.get_agent(i).get_hidden_state()]
-            #     for neighbor in self.node_dict[node_name].neighbor:
-            #         idx = self.node_name.index(neighbor)
-            #         obs_lstm.append(self.agents.get_agent(idx).get_hidden_state())
-            #     obs_lstm = np.stack(obs_lstm, axis=-1)
-            #     obs_all = [obs, obs_lstm]
-            #     return obs_all
-        if self.agent_type == 'IQL_Double_Attention':
-            obs = np.expand_dims(obs, axis=0)
+    def _get_observation(self, pre=False):
+        obs = []
+        for i, node in enumerate(self.node_name):
+            obs.append(self.obs[node][1-pre: self.seq_len-pre])
+        obs = np.stack(obs, axis=1)
         return obs
+    # get observation based on agent-type
+    # def _get_observation(self, node_name, pre=False):
+    #     # state = self.curr_obs
+    #     #     state = self.pre_obs
+    #     pre = int(pre)
+    #     if self.agent_type == 'IQL':
+    #         obs = np.asarray(self.obs[node_name][1-pre: self.seq_len-pre])
+    #     else:
+    #         # obs = np.zeros((5, state[node_name].shape[0], state[node_name].shape[1]))
+    #         # obs = [np.asarray(state[node_name])]
+    #         obs = [np.asarray(self.obs[node_name][1-pre: self.seq_len-pre])]
+    #         for neighbor in self.node_dict[node_name].neighbor:
+    #             # obs.append(state[neighbor])
+    #             obs.append(np.asarray(self.obs[neighbor][1-pre: self.seq_len-pre]))
+    #         obs = np.stack(obs, axis=-1)
+    #         if obs.shape[-1] < self.neighbor_num:
+    #             tmp = np.zeros((obs.shape[0], obs.shape[1], obs.shape[2], self.neighbor_num - obs.shape[3]))
+    #             obs = np.concatenate((obs, tmp), axis=-1)
+    #         # if self.agent_type == 'IQL_LSTM_Attention':
+    #         #     obs_lstm = [self.agents.get_agent(i).get_hidden_state()]
+    #         #     for neighbor in self.node_dict[node_name].neighbor:
+    #         #         idx = self.node_name.index(neighbor)
+    #         #         obs_lstm.append(self.agents.get_agent(idx).get_hidden_state())
+    #         #     obs_lstm = np.stack(obs_lstm, axis=-1)
+    #         #     obs_all = [obs, obs_lstm]
+    #         #     return obs_all
+    #     if self.agent_type == 'IQL_Double_Attention':
+    #         obs = np.expand_dims(obs, axis=0)
+    #     return obs
 
     def _get_reward(self, obs):
         obs_node = obs[:-1]
@@ -379,21 +397,21 @@ class TSC_Env:
         plt.plot(x, train_avg_reward, color=colors[-1], label='train')
         plt.plot(x, test_avg_reward, color=colors[0], label='test')
         plt.legend()
-        fig_name = './Data/logs/reward_' + self.name + '.png'
+        fig_name = './Data/logs/reward_' + self.name + self.agent_type + '.png'
         plt.savefig(fig_name)
         plt.show()
 
-        plt.figure()
-        plt.xlabel('episode')
-        plt.ylabel('attention score')
-        labels = ['I4', 'I1', 'I3', 'I5', 'I7']
-        all_attention_score = np.stack(self.episode_attention_score, axis=0)
-        for i in range(all_attention_score.shape[1]):
-            plt.plot(x, all_attention_score[:, i], label=labels[i])
-        plt.legend()
-        fig_name = './Data/logs/attention_' + self.name + '.png'
-        plt.savefig(fig_name)
-        plt.show()
+        # plt.figure()
+        # plt.xlabel('episode')
+        # plt.ylabel('attention score')
+        # labels = ['I4', 'I1', 'I3', 'I5', 'I7']
+        # all_attention_score = np.stack(self.episode_attention_score, axis=0)
+        # for i in range(all_attention_score.shape[1]):
+        #     plt.plot(x, all_attention_score[:, i], label=labels[i])
+        # plt.legend()
+        # fig_name = './Data/logs/attention_' + self.name + '.png'
+        # plt.savefig(fig_name)
+        # plt.show()
         # plt.figure()
         # plt.xlabel('episode')
         # plt.ylabel('mean')
@@ -412,9 +430,9 @@ class TSC_Env:
         # plt.show()
 
         step_data = pd.DataFrame(self.step_data)
-        step_data.to_csv('./Data/logs/' + ('%s_step.csv' % self.name))
+        step_data.to_csv('./Data/logs/' + ('%s_%s_step.csv' % (self.name,self.agent_type)))
         metric_data = pd.DataFrame(self.metric_data)
-        metric_data.to_csv('./Data/logs/' + ('%s_metric.csv' % self.name))
+        metric_data.to_csv('./Data/logs/' + ('%s_%s_metric.csv' % (self.name, self.agent_type)))
 
     def close(self):
         traci.close()
@@ -440,22 +458,22 @@ class TSC_Env:
         self.step_sum_waiting_time = []
         self.step_sum_queue_length = []
         self.step_avg_speed = []
-        attention_score = np.mean(np.concatenate(self.attention_score), axis=0)
-        self.episode_attention_score.append(attention_score)
-
-        if self.curr_episode == self.num_episode:
-            step_attention_score = np.concatenate(self.attention_score, axis=0)
-            plt.figure()
-            plt.xlabel('step')
-            plt.ylabel('attention score')
-            labels = ['I4', 'I1', 'I3', 'I5', 'I7']
-            for i in range(step_attention_score.shape[1]):
-                plt.plot(step_attention_score[:,i], label=labels[i])
-            plt.legend()
-            fig_name = './Data/logs/step_attention_' + self.name + '.png'
-            plt.savefig(fig_name)
-            plt.show()
-        self.attention_score = []
+        # attention_score = np.mean(np.concatenate(self.attention_score), axis=0)
+        # self.episode_attention_score.append(attention_score)
+        #
+        # if self.curr_episode == self.num_episode:
+        #     step_attention_score = np.concatenate(self.attention_score, axis=0)
+        #     plt.figure()
+        #     plt.xlabel('step')
+        #     plt.ylabel('attention score')
+        #     labels = ['I4', 'I1', 'I3', 'I5', 'I7']
+        #     for i in range(step_attention_score.shape[1]):
+        #         plt.plot(step_attention_score[:,i], label=labels[i])
+        #     plt.legend()
+        #     fig_name = './Data/logs/step_attention_' + self.name + '.png'
+        #     plt.savefig(fig_name)
+        #     plt.show()
+        # self.attention_score = []
         if gui:
             app = 'sumo-gui'
         else:

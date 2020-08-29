@@ -35,4 +35,5 @@ def get_configuration(config_file):
     config['gamma'] = content['agent'].getfloat('gamma')
     config['tau'] = content['agent'].getfloat('tau')
     config['epsilon_init'] = content['agent'].getfloat('epsilon_init')
+    config['hidden_dim'] = content['agent'].getint('hidden_dim')
     return config

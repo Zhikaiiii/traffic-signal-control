@@ -1,40 +1,99 @@
 from Agents.Basic_Agents import Basic_Agents
 from Models.Double_Attention_Model import Double_Attention_Model
 from Models.Attention_Model import Attention_Model
-from Models.Basic_Model import Embedding_Layer, Multi_Attention_Layer
+from Models.Basic_Model import Embedding_Layer, Attention_Model
 from Learners.Dueling_DDQN_Learner import Dueling_DDQN_Learner
 import torch
+from itertools import chain
+from torch import optim
+import numpy as np
 
 
 # 所有交叉口的Agent的集合
 class Attention_Agents(Basic_Agents):
-    def __init__(self, config, num_agents, input_dim, hidden_dim, output_dim):
-        super().__init__(config, num_agents)
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.output_dim = output_dim
-        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    def __init__(self, config, num_agents, input_dim, hidden_dim, output_dim, neighbor_map, node_name):
+        super().__init__(config, num_agents, input_dim, hidden_dim, output_dim)
+
         # self.q_network = Attention_Model(self.input_dim, self.output_dim, self.hidden_dim).to(self.device)
         # self.q_network_target = Attention_Model(self.input_dim, self.output_dim, self.hidden_dim).to(self.device)
         self._init_agents()
+        self.adj = self._get_adj(neighbor_map, node_name)
 
     def _init_agents(self):
         # parameter sharing
         self.embedding = Embedding_Layer(self.input_dim, self.hidden_dim).to(self.device)
-        self.attention = Multi_Attention_Layer(self.hidden_dim).to(self.device)
+        self.attention = Attention_Model(self.hidden_dim).to(self.device)
         self.embedding_target = Embedding_Layer(self.input_dim, self.hidden_dim).to(self.device)
-        self.attention_target = Multi_Attention_Layer(self.hidden_dim).to(self.device)
+        self.attention_target = Attention_Model(self.hidden_dim).to(self.device)
         Dueling_DDQN_Learner.copy_network(self.embedding, self.embedding_target)
         Dueling_DDQN_Learner.copy_network(self.attention, self.attention_target)
+        # self.share_optimizer = optim.Adam(chain(self.embedding.parameters(), self.attention.parameters()), lr=1e-3)
+        self.share_para = chain(self.embedding.parameters(), self.attention.parameters())
+        self.all_para = chain(self.embedding.parameters(), self.attention.parameters())
+        # init the optimizer
         for i in range(self.num_agents):
-            q_network = Attention_Model(self.input_dim, self.output_dim, self.hidden_dim).to(self.device)
-            q_network_target = Attention_Model(self.input_dim, self.output_dim, self.hidden_dim).to(self.device)
-            q_network.set_layer_para(self.embedding, self.attention)
-            q_network_target.set_layer_para(self.embedding_target, self.attention_target)
-            self.agents[i].set_q_network(q_network, q_network_target)
+            self.agents.append(Dueling_DDQN_Learner(self.config))
+            self.all_para = chain(self.all_para, self.agents[i].get_q_network().parameters())
+        # self.all_para = chain(self.all_para)
+        self.share_optimizer = optim.Adam(self.all_para, lr=1e-3)
+        # for i in range(self.num_agents):
+        #     q_network = Attention_Model(self.input_dim, self.output_dim, self.hidden_dim).to(self.device)
+        #     q_network_target = Attention_Model(self.input_dim, self.output_dim, self.hidden_dim).to(self.device)
+        #     q_network.set_layer_para(self.embedding, self.attention)
+        #     q_network_target.set_layer_para(self.embedding_target, self.attention_target)
+        #     self.agents[i].set_q_network(q_network, q_network_target)
 
     def get_attention_score(self, i):
         return self.agents[i].get_q_network().get_attention_score()
+
+    def _get_embedding(self, state):
+        state_embedding = self.embedding(state)
+        state_attention, _ = self.attention(state_embedding, self.adj)
+        return state_attention
+
+    def _get_embedding_target(self, state):
+        state_embedding_target = self.embedding_target(state)
+        state_attention_target, _ = self.attention_target(state_embedding_target, self.adj)
+        return state_attention_target
+
+    def _update_sharing_target_network(self):
+        Dueling_DDQN_Learner.soft_update_of_target_network(self.embedding, self.embedding_target, self.tau)
+        Dueling_DDQN_Learner.soft_update_of_target_network(self.attention, self.attention_target, self.tau)
+
+    def _get_adj(self, neighbor_map, node_name):
+        adj = np.zeros((self.num_agents, self.num_agents), dtype=bool)
+        for i, node in enumerate(node_name):
+            adj[i][i] = True
+            for neighbor in neighbor_map[node]:
+                idx = node_name.index(neighbor)
+                adj[i][idx] = True
+        return adj
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 class Double_Attention_Agents(Attention_Agents):
     def __init__(self, config, num_agents, input_dim, hidden_dim, output_dim):
@@ -43,11 +102,11 @@ class Double_Attention_Agents(Attention_Agents):
 
     def _init_agents(self):
         self.embedding = Embedding_Layer(self.input_dim, self.hidden_dim).to(self.device)
-        self.attention = Multi_Attention_Layer(self.hidden_dim).to(self.device)
-        self.temporal_attention = Multi_Attention_Layer(self.hidden_dim).to(self.device)
+        self.attention = Attention_Model(self.hidden_dim).to(self.device)
+        self.temporal_attention = Attention_Model(self.hidden_dim).to(self.device)
         self.embedding_target = Embedding_Layer(self.input_dim, self.hidden_dim).to(self.device)
-        self.attention_target = Multi_Attention_Layer(self.hidden_dim).to(self.device)
-        self.temporal_attention_target = Multi_Attention_Layer(self.hidden_dim).to(self.device)
+        self.attention_target = Attention_Model(self.hidden_dim).to(self.device)
+        self.temporal_attention_target = Attention_Model(self.hidden_dim).to(self.device)
         Dueling_DDQN_Learner.copy_network(self.embedding, self.embedding_target)
         Dueling_DDQN_Learner.copy_network(self.attention, self.attention_target)
         Dueling_DDQN_Learner.copy_network(self.temporal_attention, self.temporal_attention_target)

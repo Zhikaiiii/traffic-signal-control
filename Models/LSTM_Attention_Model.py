@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 import numpy as np
-from Models.Basic_Model import RNN_Layer, Embedding_Layer, Multi_Attention_Layer
+from Models.Basic_Model import RNN_Layer, Embedding_Layer, Attention_Model
 
 
 class LSTM_Attention_Model(nn.Module):
@@ -13,7 +13,7 @@ class LSTM_Attention_Model(nn.Module):
         self.hidden_dim = hidden_dim
         self.embedding = Embedding_Layer(self.input_dim, self.hidden_dim)
         self.rnn = RNN_Layer(self.hidden_dim, self.hidden_dim)
-        self.attention = Multi_Attention_Layer(self.hidden_dim)
+        self.attention = Attention_Model(self.hidden_dim)
         self.relu = nn.ReLU()
         self.linear_out = nn.Linear(self.hidden_dim, self.output_dim)
         self.hidden, self.cell = None, None

@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 import numpy as np
-from Models.Basic_Model import Embedding_Layer, Multi_Attention_Layer
+from Models.Basic_Model import Embedding_Layer, Attention_Model
 
 
 class Attention_Model(nn.Module):
@@ -19,7 +19,7 @@ class Attention_Model(nn.Module):
         #     self.linear1 = nn.Linear(self.input_dim, self.output_dim)
         # else:
         self.embedding = Embedding_Layer(self.input_dim, self.hidden_dim)
-        self.attention = Multi_Attention_Layer(self.hidden_dim)
+        self.attention = Attention_Model(self.hidden_dim)
         self.relu = nn.ReLU()
         self.linear1 = nn.Linear(self.hidden_dim, self.output_dim)
 
@@ -45,21 +45,21 @@ class Attention_Model(nn.Module):
         # if self.pre_train:
         #     out = self.linear1(agent_embedding)
         #     return out
-        agent_embedding = agent_embedding.unsqueeze(1)
-        neighbors_embedding = None
-        for i in range(neighbors_num):
-            if i == 0:
-                neighbors_embedding = self.embedding(neighbors_state[:, i]).unsqueeze(1)
-            else:
-                neighbors_embedding = torch.cat((neighbors_embedding,
-                                                 self.embedding(neighbors_state[:, i]).unsqueeze(1)), dim=1)
-        agent_embedding = agent_embedding.permute((1, 0, 2))
-        neighbors_embedding = neighbors_embedding.permute((1, 0, 2))
-        out, attention_score = self.attention(agent_embedding, neighbors_embedding)
-        out = out.squeeze(0)
-        out = self.relu(out)
-        self.attention_score = attention_score
-        # out = self.attention(agent_state, neighbors_state)
+        # agent_embedding = agent_embedding.unsqueeze(1)
+        # neighbors_embedding = None
+        # for i in range(neighbors_num):
+        #     if i == 0:
+        #         neighbors_embedding = self.embedding(neighbors_state[:, i]).unsqueeze(1)
+        #     else:
+        #         neighbors_embedding = torch.cat((neighbors_embedding,
+        #                                          self.embedding(neighbors_state[:, i]).unsqueeze(1)), dim=1)
+        # agent_embedding = agent_embedding.permute((1, 0, 2))
+        # neighbors_embedding = neighbors_embedding.permute((1, 0, 2))
+        # out, attention_score = self.attention(agent_embedding, neighbors_embedding)
+        # out = out.squeeze(0)
+        # out = self.relu(out)
+        # self.attention_score = attention_score
+        out = self.relu(agent_embedding)
         out = self.linear1(out)
         return out
 

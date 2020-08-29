@@ -2,14 +2,14 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 import numpy as np
-from Models.Basic_Model import Embedding_Layer, Multi_Attention_Layer
+from Models.Basic_Model import Embedding_Layer, Attention_Model
 from Models.Attention_Model import Attention_Model
 
 
 class Double_Attention_Model(Attention_Model):
     def __init__(self, input_dim, output_dim, hidden_dim):
         super().__init__(input_dim, output_dim, hidden_dim)
-        self.temporal_attention = Multi_Attention_Layer(self.hidden_dim)
+        self.temporal_attention = Attention_Model(self.hidden_dim)
         # self.seq_len = seq_len
 
     '''
