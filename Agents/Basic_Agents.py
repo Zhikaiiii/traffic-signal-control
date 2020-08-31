@@ -7,6 +7,7 @@ from torch import optim
 import torch.nn.functional as F
 import numpy as np
 
+
 # Agents的集合
 class Basic_Agents:
     def __init__(self, config, num_agents, input_dim, hidden_dim, output_dim):
@@ -49,11 +50,11 @@ class Basic_Agents:
     def get_agent(self, i):
         return self.agents[i]
 
-    def step(self, state):
+    def step(self, state, test=False):
         state_embedding = self._get_embedding(state)
         action = []
         for i in range(self.num_agents):
-            action.append(self.agents[i].step(state_embedding[:, i]))
+            action.append(self.agents[i].step(state_embedding[:, i], test))
         action = np.asarray(action)
         self.curr_step += 1
         return action
@@ -66,7 +67,8 @@ class Basic_Agents:
         return states, actions, rewards, next_states, is_dones
 
     def learn(self):
-        if self.curr_step > 0 and self.curr_step % self.update_step == 0:
+        # if self.curr_step > 0 and self.curr_step % self.update_step == 0:
+        for i in range(self.update_step):
             states, actions, rewards, next_states, is_dones = self.sample_experience()
             actions = torch.from_numpy(actions).long().to(self.device)
             rewards = torch.from_numpy(rewards).float().to(self.device)

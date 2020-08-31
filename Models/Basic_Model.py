@@ -1,5 +1,3 @@
-from abc import ABC
-
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
@@ -23,6 +21,7 @@ class Embedding_Layer(nn.Module):
     不包含：
     x: [batch_size, node_num, input_dim]
     '''
+
     def forward(self, x):
         if len(x.shape) == 4:
             obs, phase = x[:, :, :-1], x[:, :, -1:]
@@ -56,17 +55,40 @@ class Embedding_Layer(nn.Module):
         return out
 
 
-class RNN_Layer(nn.Module):
-    def __init__(self, input_dim, hidden_dim):
-        super(RNN_Layer, self).__init__()
-        self.linear1 = nn.Linear(input_dim, hidden_dim)
+class RNN_Model(nn.Module):
+    def __init__(self, hidden_dim, num_agents):
+        super(RNN_Model, self).__init__()
+        # self.linear1 = nn.Linear(input_dim, hidden_dim)
+        self.num_agents = num_agents
+        self.hidden_dim = hidden_dim
         self.lstm = nn.LSTMCell(hidden_dim, hidden_dim)
         self.relu1 = nn.ReLU()
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.h = torch.zeros((1, self.num_agents, self.hidden_dim)).to(self.device)
+        self.c = torch.zeros((1, self.num_agents, self.hidden_dim)).to(self.device)
 
-    def forward(self, x, h, c):
-        x = self.relu1(self.linear1(x))
-        h_out, c_out = self.lstm(x, (h, c))
+    def forward(self, x, h=None, c=None):
+        if h is None:
+            h = self.h
+        else:
+            h = torch.from_numpy(h).float().to(self.device)
+        if c is None:
+            c = self.c
+        else:
+            c = torch.from_numpy(c).float().to(self.device)
+        batch_size = x.shape[0]
+        h_out = torch.zeros_like(x)
+        c_out = torch.zeros_like(x)
+        # x = self.relu1(self.linear1(x))
+        for i in range(self.num_agents):
+            h_out[:, i], c_out[:, i] = self.lstm(x[:, i], (h[:, i], c[:, i]))
+        if batch_size == 1:
+            self.h = h_out.clone()
+            self.c = c_out.clone()
         return h_out, c_out
+
+    def get_hidden_state(self):
+        return self.h.cpu().detach().numpy(), self.c.cpu().detach().numpy()
 
 
 class Double_Attention_Model(nn.Module):
@@ -82,6 +104,7 @@ class Double_Attention_Model(nn.Module):
     x: [batch_size, seq_len, num_agents, embedding_dim]
     adj:[num_agents, num_agents] 
     '''
+
     def forward(self, x, adj):
         # current state embedding
         # curr_embed = x[:, :, -1]
@@ -96,7 +119,7 @@ class Double_Attention_Model(nn.Module):
                     neighbor_embed = x[:, :, j].permute((1, 0, 2))
                     temporal_embedding.append(self.temporal_attention(curr_embed, neighbor_embed, neighbor_embed)[0])
             temporal_embedding = torch.cat(tuple(temporal_embedding), dim=0)
-            out[i: i+1, :] = self.spatial_attention(curr_embed, temporal_embedding, temporal_embedding)[0]
+            out[i: i + 1, :] = self.spatial_attention(curr_embed, temporal_embedding, temporal_embedding)[0]
         out = out.permute((1, 0, 2))
         return out
 
@@ -130,7 +153,8 @@ class Attention_Model(nn.Module):
         attention_score = torch.zeros((batch_size, target_len, target_len))
         for i in range(target_len):
             mask = adj[i].repeat(batch_size, 1)
-            out[i: i+1], attention_score[:, i: i+1] = self.attention(x[i].unsqueeze(0).clone(), x, x, key_padding_mask=mask)
+            out[i: i + 1], attention_score[:, i: i + 1] = self.attention(x[i].unsqueeze(0).clone(), x, x,
+                                                                         key_padding_mask=mask)
         # [batch_size, seq_len, embedding_dim]
         out = out.permute((1, 0, 2))
         return out, attention_score
@@ -140,8 +164,6 @@ class Attention_Model(nn.Module):
     #         return torch.zeros_like(x).to(self.device), None
     #     out, attention_score = self.attention(x, neighbors, neighbors, key_padding_mask=key_padding_mask)
     #     return out, attention_score
-
-
 
 # # Single Attention Layer
 # class Attention_Layer(nn.Module):

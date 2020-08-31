@@ -1,3 +1,7 @@
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import warnings
 import torch
 import traci
 import traci.constants as tc
@@ -10,10 +14,8 @@ from tqdm import tqdm
 from Agents.Attention_Agents import Attention_Agents
 from Agents.Basic_Agents import Basic_Agents
 from Agents.Double_Attention_Agents import Double_Attention_Agents
+from Agents.LSTM_Attention_Agents import LSTM_Attention_Agents
 import random
-import matplotlib.pyplot as plt
-import warnings
-
 
 # 路网结构
 NEIGHBOR_MAP = {'I0': ['I1', 'I3'],
@@ -66,11 +68,12 @@ class TSC_Env:
         self.green_duration = para_config['green_duration']
         self.control_interval = self.yellow_duration + self.green_duration
         self.coef_reward = para_config['coef_reward']
-        self.num_states_phase = 4
-        self.num_states_obs = 4
-        self.num_states_lanes = 12
-        self.num_actions = 4
-        self.neighbor_num = 5
+        self.num_states_phase = para_config['num_states_phase']
+        self.num_states_obs = para_config['num_states_obs']
+        self.num_states_lanes = para_config['num_states_lanes']
+        self.num_actions = para_config['num_actions']
+        self.num_neighbors = para_config['num_neighbors']
+
         # simulation parameter
         self.curr_step = 0
         self.curr_episode = 0
@@ -84,8 +87,9 @@ class TSC_Env:
         # 记录路网指标
         self.split_ratio = 0.75
         self.split = int(self.max_step * self.split_ratio // self.control_interval)
+        self.test = False
         # step
-        self.para = {}
+        self.para = []
         self.step_reward = []
         self.step_sum_waiting_time = []
         self.step_avg_speed = []
@@ -113,7 +117,7 @@ class TSC_Env:
         command += ['--time-to-teleport', '300']
         command += ['--no-warnings', 'True']
         command += ['--duration-log.disable', 'True']
-        traci.start(command)
+        traci.start(command, port=4343)
         self._init_node()
         # set agent
         input_dim = [self.num_states_phase, self.num_states_obs, self.num_states_lanes]
@@ -124,6 +128,10 @@ class TSC_Env:
         elif self.agent_type == 'IQL_Attention':
             self.agents = Attention_Agents(self.para_config, len(self.node_name), input_dim, hidden_dim, output_dim,
                                            self.neighbor_map, self.node_name)
+        elif self.agent_type == 'IQL_LSTM_Attention':
+            self.agents = LSTM_Attention_Agents(self.para_config, len(self.node_name), input_dim, hidden_dim,
+                                                output_dim,
+                                                self.neighbor_map, self.node_name)
         else:
             self.agents = Double_Attention_Agents(self.para_config, len(self.node_name), input_dim, hidden_dim,
                                                   output_dim, self.seq_len,
@@ -173,7 +181,7 @@ class TSC_Env:
     def step(self):
         # get observation
         obs = self._get_observation()
-        action = self.agents.step(obs)
+        action = self.agents.step(obs, self.test)
         for i, node in enumerate(self.node_name):
             # obs = self._get_observation(node)
             # action = self.agents.get_agent(i).step(obs)
@@ -207,9 +215,11 @@ class TSC_Env:
         next_obs = self._get_observation()
         if self.max_step == self.curr_step:
             is_done = True
+            self.agents.learn()
         if self.curr_step / self.max_step < 0.75:
             self.agents.store_experience(obs, action, reward, next_obs, is_done)
-            self.agents.learn()
+            # self.test = True
+
         # for i, node in enumerate(self.node_name):
         #     obs = self._get_observation(node, True)
         #     next_obs = self._get_observation(node)
@@ -290,9 +300,9 @@ class TSC_Env:
             f_node, t_node, _ = lane.split('_')
             if t_node == node_name and (f_node[0] == 'P' or f_node[0] == 'I'):
                 waiting_time, mean_speed, queue_length = \
-                    res[tc.VAR_WAITING_TIME]/500, res[tc.LAST_STEP_MEAN_SPEED]/20, \
-                    res[tc.LAST_STEP_VEHICLE_HALTING_NUMBER]/40
-                vehicle_num = traci.lanearea.getLastStepVehicleNumber(lane)/40
+                    res[tc.VAR_WAITING_TIME] / 500, res[tc.LAST_STEP_MEAN_SPEED] / 20, \
+                    res[tc.LAST_STEP_VEHICLE_HALTING_NUMBER] / 40
+                vehicle_num = traci.lanearea.getLastStepVehicleNumber(lane) / 40
                 obs_lane = [waiting_time, mean_speed, queue_length, vehicle_num]
                 obs.append(obs_lane)
         obs = np.asarray(obs)
@@ -305,9 +315,10 @@ class TSC_Env:
     def _get_observation(self, pre=False):
         obs = []
         for i, node in enumerate(self.node_name):
-            obs.append(self.obs[node][1-pre: self.seq_len-pre])
+            obs.append(self.obs[node][1 - pre: self.seq_len - pre])
         obs = np.stack(obs, axis=1)
         return obs
+
     # get observation based on agent-type
     # def _get_observation(self, node_name, pre=False):
     #     # state = self.curr_obs
@@ -362,23 +373,23 @@ class TSC_Env:
         train_episode_reward = np.mean(self.step_reward[0:self.split, :], axis=0)
         test_episode_reward = np.mean(self.step_reward[self.split:, :], axis=0)
 
-        train_avg_reward = np.sum(train_episode_reward)*50
-        test_avg_reward = np.sum(test_episode_reward)*50
+        train_avg_reward = np.sum(train_episode_reward) * 50
+        test_avg_reward = np.sum(test_episode_reward) * 50
         self.train_episode_reward.append(train_episode_reward)
         self.test_episode_reward.append(test_episode_reward)
         self.train_episode_avg_reward.append(train_avg_reward)
         self.test_episode_avg_reward.append(test_avg_reward)
-        avg_waiting_time = np.mean(np.sum(self.step_sum_waiting_time, axis=1))*500
-        avg_speed = np.mean(self.step_avg_speed)*20
-        avg_queue_length = np.mean(np.sum(self.step_sum_queue_length, axis=1))*40
+        avg_waiting_time = np.mean(np.sum(self.step_sum_waiting_time[self.split:, :], axis=1)) * 500
+        avg_speed = np.mean(self.step_avg_speed[self.split:, :]) * 20
+        avg_queue_length = np.mean(np.sum(self.step_sum_queue_length[self.split:, :], axis=1)) * 40
         episode_info = {'episode': self.curr_episode,
                         'train_episode_reward': train_episode_reward,
                         'test_episode_reward': test_episode_reward,
                         'train_avg_reward': train_avg_reward,
                         'test_avg_reward': test_avg_reward,
-                        'avg_waiting_time': avg_waiting_time,
-                        'avg_speed': avg_speed,
-                        'avg_queue_length': avg_queue_length}
+                        'test_avg_waiting_time': avg_waiting_time,
+                        'test_avg_speed': avg_speed,
+                        'test_avg_queue_length': avg_queue_length}
         self.metric_data.append(episode_info)
         return train_avg_reward, test_avg_reward, avg_waiting_time, avg_speed, avg_queue_length
 
@@ -397,7 +408,7 @@ class TSC_Env:
         plt.plot(x, train_avg_reward, color=colors[-1], label='train')
         plt.plot(x, test_avg_reward, color=colors[0], label='test')
         plt.legend()
-        fig_name = './Data/logs/reward_' + self.name + self.agent_type + '.png'
+        fig_name = './Logs/test10/reward_' + self.name + self.agent_type + '.png'
         plt.savefig(fig_name)
         plt.show()
 
@@ -416,44 +427,50 @@ class TSC_Env:
         # plt.xlabel('episode')
         # plt.ylabel('mean')
         # for k in self.para:
-        #     data = np.asarray(self.para[k])
-        #     plt.plot(x, data[:, 0], label=k)
-        # plt.legend()
+        #     data = np.asarray(k)
+        #     plt.plot(x, data[:, 0])
+        # fig_name = './Logs/test6/mean_' + self.name + '.png'
+        # plt.savefig(fig_name)
+        # # plt.legend()
         # plt.show()
         # plt.figure()
         # plt.xlabel('episode')
         # plt.ylabel('std')
         # for k in self.para:
-        #     data = np.asarray(self.para[k])
-        #     plt.plot(x, data[:, 1], label=k)
-        # plt.legend()
+        #     data = np.asarray(k)
+        #     plt.plot(x, data[:, 1])
+        # # plt.legend()
+        # fig_name = './Logs/test6/std_' + self.name + '.png'
+        # plt.savefig(fig_name)
         # plt.show()
 
         step_data = pd.DataFrame(self.step_data)
-        step_data.to_csv('./Data/logs/' + ('%s_%s_step.csv' % (self.name,self.agent_type)))
+        step_data.to_csv('./Logs/test10/' + ('%s_%s_step.csv' % (self.name, self.agent_type)))
         metric_data = pd.DataFrame(self.metric_data)
-        metric_data.to_csv('./Data/logs/' + ('%s_%s_metric.csv' % (self.name, self.agent_type)))
+        metric_data.to_csv('./Logs/test10/' + ('%s_%s_metric.csv' % (self.name, self.agent_type)))
 
     def close(self):
         traci.close()
 
     def _get_para_data(self):
-        para = dict(self.agents.q_network.named_parameters())
-        for k in para:
-            data = para[k].data
-            avg, std = (torch.mean(data)).numpy(), (torch.std(data)).numpy()
-            tmp = self.para.get(k, [])
-            tmp.append(np.asarray((avg, std)))
-            self.para[k] = tmp
-
+        para = list(self.agents.share_para)
+        for i, k in enumerate(para):
+            data = k.data
+            avg, std = (torch.mean(data)).cpu().numpy(), (torch.std(data)).cpu().numpy()
+            if len(self.para) == i:
+                self.para.append([])
+            # tmp = self.para.get(k, [])
+            self.para[i].append(np.asarray((avg, std)))
+            # self.para.append((tmp))
 
     def reset(self, gui=False):
         self.close()
-        # self._get_para_data()
+        self._get_para_data()
         self.curr_episode += 1
         # if self.curr_episode > 50 and self.agent_type != 'IQL':
         #     self.agents.change_mode()
         self.curr_step = 0
+        self.test = False
         self.step_reward = []
         self.step_sum_waiting_time = []
         self.step_sum_queue_length = []
@@ -484,7 +501,7 @@ class TSC_Env:
         command += ['--time-to-teleport', '300']
         command += ['--no-warnings', 'True']
         command += ['--duration-log.disable', 'True']
-        traci.start(command)
+        traci.start(command, port=4343)
         for i, node_name in enumerate(traci.trafficlight.getIDList()):
             # 订阅junction中每个lane的信息
             traci.junction.subscribeContext(node_name, tc.CMD_GET_LANE_VARIABLE, 100,
@@ -517,12 +534,14 @@ def set_random_seeds(random_seed):
 
 if __name__ == '__main__':
     para_config = get_configuration('para_config.ini')
+    road_network_name = 'Grid9'
     total_episodes = para_config['total_episodes']
     warnings.filterwarnings('ignore')
-    # total_episodes = 3
+    print(para_config)
+    print(road_network_name)
     sim_seed = para_config['sim_seed']
     set_random_seeds(sim_seed)
-    road_network = TSC_Env('Grid9', para_config)
+    road_network = TSC_Env(road_network_name, para_config)
     # reward_total = []
     for i in tqdm(range(total_episodes)):
         while not road_network.step():
@@ -534,9 +553,10 @@ if __name__ == '__main__':
         print('waiting_time:', waiting_time)
         print('speed:', speed)
         print('queue_length', queue_length)
+        print('epsilon', road_network.agents.agents[0].epsilon)
         # reward_total.append(reward)
         road_network.reset()
-    # road_network.output_data()
+    road_network.output_data()
     road_network.close()
     #
     # road_network_test = TSC_Env('Grid9', para_config, gui=True)

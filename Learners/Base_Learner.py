@@ -18,17 +18,17 @@ class Base_Learner:
         # 超参数
         self.tau = config['tau']
         self.gamma = config['gamma']
-        self.epsilon_init = config['epsilon_init']
-        self.epsilon = self.epsilon_init
+        self.epsilon_final = config['epsilon_final']
+        self.epsilon = 1
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
         # 状态数和行动数
         # self.num_states_obs = config['num_states_obs']
         # self.num_states_phase = config['num_states_phase']
         # self.num_states_lanes = config['num_states_lanes']
-        # self.num_actions = config['num_actions']
+        self.num_actions = config['num_actions']
         self.input_dim = config['hidden_dim']
-        self.output_dim = config['num_actions'] + 1
+        self.output_dim = self.num_actions + 1
 
         # Replay Buffer相关参数
         # self.batch_size = config['batch_size']
@@ -36,7 +36,7 @@ class Base_Learner:
         # self.replay_buffer = Replay_Buffer(self.buffer_size, self.batch_size)
 
     # 需要由子类重写
-    def step(self, state):
+    def step(self, state, test):
         """Takes a step in the game. This method must be overriden by any agent"""
         raise ValueError("Step needs to be implemented by the agent")
 
@@ -50,8 +50,10 @@ class Base_Learner:
         #     model = Model(embedding, attention, input_dim, output_dim).to(self.device)
         return model
 
-    def select_actions(self, actions):
+    def select_actions(self, actions, test=False):
         actions = actions.cpu().numpy()
+        if test:
+            return np.argmax(actions)
         if np.random.random() < self.epsilon:
             selected_action = np.random.randint(0, self.num_actions)
         else:
@@ -67,7 +69,8 @@ class Base_Learner:
     #     return states, actions, rewards, next_states, is_dones
 
     def update_epsilon_exploration(self, current_episode):
-        self.epsilon = max(0.01, 0.01 + self.epsilon_init * (1 - 2 * current_episode/ self.total_episodes))
+        self.epsilon = max(self.epsilon_final, self.epsilon_final +
+                           (1 - self.epsilon_final) * (1 - 2 * current_episode/ self.total_episodes))
 
     # def reset(self):
     #     self.curr_step = 0

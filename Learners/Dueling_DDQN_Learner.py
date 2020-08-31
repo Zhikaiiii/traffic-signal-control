@@ -22,13 +22,13 @@ class Dueling_DDQN_Learner(Base_Learner):
         #                                                       factor=0.2)
 
     # 执行一个step，返回action
-    def step(self, state):
+    def step(self, state, test):
         self.q_network_current.eval()
         with torch.no_grad():
             out = self.q_network_current(state)
             advantages_values, state_values = out[:, :-1], out[:, -1]
         self.q_network_current.train()
-        action = self.select_actions(advantages_values)
+        action = self.select_actions(advantages_values, test)
         self.curr_step += 1
         return action
 
