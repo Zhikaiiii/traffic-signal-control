@@ -104,40 +104,40 @@ class NetworkGenerator():
         edges_context += '</edges>\n'
         self._write_file(path, edges_context)
     
-    def _gen_con_str(self, con_str, from_node, cur_node, to_node, from_lane, to_lane):
+    def get_con_str(self, con, from_node, cur_node, to_node, from_lane, to_lane):
         from_edge = '%s_%s' % (from_node, cur_node)
         to_edge = '%s_%s' % (cur_node, to_node)
-        return con_str % (from_edge, to_edge, from_lane, to_lane)
+        return con % (from_edge, to_edge, from_lane, to_lane)
     # 定义交通轨迹
     def _gen_con_node(self, con_str, cur_node, n_node, s_node, w_node, e_node):
         str_cons = ''
         # go-through
-        str_cons += self._gen_con_str(con_str, s_node, cur_node, n_node, 0, 0)
-        str_cons += self._gen_con_str(con_str, n_node, cur_node, s_node, 0, 0)
-        str_cons += self._gen_con_str(con_str, s_node, cur_node, n_node, 1, 1)
-        str_cons += self._gen_con_str(con_str, n_node, cur_node, s_node, 1, 1)
+        str_cons += self.get_con_str(con_str, s_node, cur_node, n_node, 0, 0)
+        str_cons += self.get_con_str(con_str, n_node, cur_node, s_node, 0, 0)
+        str_cons += self.get_con_str(con_str, s_node, cur_node, n_node, 1, 1)
+        str_cons += self.get_con_str(con_str, n_node, cur_node, s_node, 1, 1)
         # str_cons += self._gen_con_str(con_str, s_node, cur_node, n_node, 1, 2)
         # str_cons += self._gen_con_str(con_str, n_node, cur_node, s_node, 1, 2)
-        str_cons += self._gen_con_str(con_str, w_node, cur_node, e_node, 0, 0)
-        str_cons += self._gen_con_str(con_str, e_node, cur_node, w_node, 0, 0)
-        str_cons += self._gen_con_str(con_str, w_node, cur_node, e_node, 1, 1)
-        str_cons += self._gen_con_str(con_str, e_node, cur_node, w_node, 1, 1)
+        str_cons += self.get_con_str(con_str, w_node, cur_node, e_node, 0, 0)
+        str_cons += self.get_con_str(con_str, e_node, cur_node, w_node, 0, 0)
+        str_cons += self.get_con_str(con_str, w_node, cur_node, e_node, 1, 1)
+        str_cons += self.get_con_str(con_str, e_node, cur_node, w_node, 1, 1)
         # str_cons += self._gen_con_str(con_str, w_node, cur_node, e_node, 1, 2)
         # str_cons += self._gen_con_str(con_str, e_node, cur_node, w_node, 1, 2)
         # left-turn
-        str_cons += self._gen_con_str(con_str, s_node, cur_node, w_node, 2, 2)
-        str_cons += self._gen_con_str(con_str, n_node, cur_node, e_node, 2, 2)
-        str_cons += self._gen_con_str(con_str, w_node, cur_node, n_node, 2, 2)
-        str_cons += self._gen_con_str(con_str, e_node, cur_node, s_node, 2, 2)
+        str_cons += self.get_con_str(con_str, s_node, cur_node, w_node, 2, 2)
+        str_cons += self.get_con_str(con_str, n_node, cur_node, e_node, 2, 2)
+        str_cons += self.get_con_str(con_str, w_node, cur_node, n_node, 2, 2)
+        str_cons += self.get_con_str(con_str, e_node, cur_node, s_node, 2, 2)
         # str_cons += self._gen_con_str(con_str, s_node, cur_node, w_node, 2, 1)
         # str_cons += self._gen_con_str(con_str, n_node, cur_node, e_node, 2, 1)
         # str_cons += self._gen_con_str(con_str, w_node, cur_node, n_node, 2, 1)
         # str_cons += self._gen_con_str(con_str, e_node, cur_node, s_node, 2, 1)
         # right-turn
-        str_cons += self._gen_con_str(con_str, s_node, cur_node, e_node, 0, 0)
-        str_cons += self._gen_con_str(con_str, n_node, cur_node, w_node, 0, 0)
-        str_cons += self._gen_con_str(con_str, w_node, cur_node, s_node, 0, 0)
-        str_cons += self._gen_con_str(con_str, e_node, cur_node, n_node, 0, 0)
+        str_cons += self.get_con_str(con_str, s_node, cur_node, e_node, 0, 0)
+        str_cons += self.get_con_str(con_str, n_node, cur_node, w_node, 0, 0)
+        str_cons += self.get_con_str(con_str, w_node, cur_node, s_node, 0, 0)
+        str_cons += self.get_con_str(con_str, e_node, cur_node, n_node, 0, 0)
         return str_cons
     
     def gen_con_file(self):
@@ -201,12 +201,13 @@ class NetworkGenerator():
         flows_context += '</routes>\n'
         self._write_file(path, flows_context)
         flows = FlowHelper(path)
-        flows.add_sin_flow('flow_sin_1', 'type1', 'P0_I0', 'I3_P3', 0, 3600, 20, 100, 400, 0)
-        flows.add_sin_flow('flow_sin_2', 'type1', 'P1_I1', 'I2_P5', 0, 3600, 20, 80, 400, 45)
-        flows.add_sin_flow('flow_sin_3', 'type1', 'P5_I2', 'I1_P6', 0, 3600, 20, 100, 300, 90)
-        flows.add_linear_flow('flow_line_1', 'type1', 'P3_I3', 'I0_P4', 0, 3600, 20, 0, 300)
-        flows.add_linear_flow('flow_line_2', 'type1', 'P2_I2', 'I1_P1', 0, 3600, 20, 500, 0)
-        flows.add_linear_flow('flow_line_3', 'type1', 'P6_I1', 'I0_P0', 0, 3600, 20, 100, 400)
+        flows.add_sin_flow('flow_sin_1', 'type1', 'P0_I0', 'I7_P4', 0, 3600, 20, 100, 600, 0)
+        flows.add_sin_flow('flow_sin_2', 'type1', 'P7_I3', 'I2_P2', 0, 3600, 20, 80, 500, 90)
+        flows.add_sin_flow('flow_sin_3', 'type1', 'P9_I2', 'I6_P3', 0, 3600, 20, 100, 700, 180)
+        # flows.add_sin_flow('flow_sin_4', 'type1', 'P4_I7', 'I0_P6', 0, 3600, 20, 120, 600, 270)
+        flows.add_linear_flow('flow_line_1', 'type1', 'P5_I8', 'I1_P1', 0, 3600, 20, 0, 400)
+        flows.add_linear_flow('flow_line_2', 'type1', 'P10_I5', 'I6_P8', 0, 3600, 20, 400, 0)
+        flows.add_linear_flow('flow_line_3', 'type1', 'P6_I0', 'I8_P11', 0, 3600, 20, 200, 500)
         # flows.add_sin_flow('flow_sin_1', 'type1', 'P0_I0', 'I7_P4', 0, 3600, 20, 100, 600, 0)
         # flows.add_sin_flow('flow_sin_2', 'type1', 'P7_I3', 'I2_P2', 0, 3600, 20, 80, 500, 45)
         # flows.add_sin_flow('flow_sin_3', 'type1', 'P9_I2', 'I6_P3', 0, 3600, 20, 100, 700, 90)

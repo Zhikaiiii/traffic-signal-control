@@ -33,7 +33,7 @@ class LSTM_Attention_Agents(Attention_Agents):
             self.agents.append(Dueling_DDQN_Learner(self.config))
             self.all_para = chain(self.all_para, self.agents[i].get_q_network().parameters())
         # self.all_para = chain(self.all_para)
-        self.share_optimizer = optim.Adam(self.all_para, lr=1e-3)
+        self.share_optimizer = optim.RMSprop(self.all_para, lr=self.lr, weight_decay=1e-4)
 
     def _get_embedding(self, state):
         state_embedding = self.embedding(state)
@@ -45,7 +45,7 @@ class LSTM_Attention_Agents(Attention_Agents):
             state_hidden, _ = self.rnn(state_embedding)
         else:
             state_hidden, _ = self.rnn(state_embedding, self.hidden, self.cell)
-        state_attention, _ = self.attention(state_hidden, self.adj)
+        state_attention = self.attention(state_hidden, self.adj)
         return state_attention
 
     def _get_embedding_target(self, state):
@@ -55,7 +55,7 @@ class LSTM_Attention_Agents(Attention_Agents):
             state_hidden_target, _ = self.rnn_target(state_embedding_target)
         else:
             state_hidden_target, _ = self.rnn_target(state_embedding_target, self.hidden_target, self.cell_target)
-        state_attention_target, _ = self.attention_target(state_hidden_target, self.adj)
+        state_attention_target = self.attention_target(state_hidden_target, self.adj)
         return state_attention_target
 
     def _update_sharing_target_network(self):
@@ -76,3 +76,9 @@ class LSTM_Attention_Agents(Attention_Agents):
         self.cell_target = hidden[:, 3]
         return states, actions, rewards, next_states, is_dones
 
+    def get_share_para(self):
+        dic1 = dict(self.embedding.named_parameters())
+        dic2 = dict(self.rnn.named_parameters())
+        dic3 = dict(dic1, **dic2)
+        dic4 = dict(self.attention.named_parameters())
+        return dict(dic3, **dic4)

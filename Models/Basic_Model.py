@@ -97,8 +97,9 @@ class Double_Attention_Model(nn.Module):
         self.embed_dim = embed_dim
         self.n_heads = n_heads
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.temporal_attention = nn.MultiheadAttention(self.embed_dim, self.n_heads)
-        self.spatial_attention = nn.MultiheadAttention(self.embed_dim, self.n_heads)
+        self.temporal_attention = nn.MultiheadAttention(self.embed_dim, self.n_heads, bias=False)
+        self.spatial_attention = nn.MultiheadAttention(self.embed_dim, self.n_heads, bias=False)
+        self.attention_score = [torch.zeros(1)]
 
     '''
     x: [batch_size, seq_len, num_agents, embedding_dim]
@@ -108,8 +109,12 @@ class Double_Attention_Model(nn.Module):
     def forward(self, x, adj):
         # current state embedding
         # curr_embed = x[:, :, -1]
+        batch_size = x.shape[0]
         num_agents = x.shape[2]
         out = torch.zeros((x.shape[2], x.shape[0], x.shape[3])).to(self.device)
+        self.attention_score = [torch.zeros(1)] * num_agents
+        # attention_score = []
+        # attention_score = torch.zeros((batch_size, num_agents, num_agents))
         for i in range(num_agents):
             temporal_embedding = []
             curr_embed = x[:, -1, i].unsqueeze(0)
@@ -119,9 +124,13 @@ class Double_Attention_Model(nn.Module):
                     neighbor_embed = x[:, :, j].permute((1, 0, 2))
                     temporal_embedding.append(self.temporal_attention(curr_embed, neighbor_embed, neighbor_embed)[0])
             temporal_embedding = torch.cat(tuple(temporal_embedding), dim=0)
-            out[i: i + 1, :] = self.spatial_attention(curr_embed, temporal_embedding, temporal_embedding)[0]
+            out[i: i + 1, :], att = self.spatial_attention(curr_embed, temporal_embedding, temporal_embedding)
+            self.attention_score[i] = att
         out = out.permute((1, 0, 2))
         return out
+
+    def get_attention_score(self, i):
+        return self.attention_score[i].squeeze(1).cpu().detach().numpy()
 
 
 class Attention_Model(nn.Module):
@@ -131,6 +140,7 @@ class Attention_Model(nn.Module):
         self.n_heads = n_heads
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.attention = nn.MultiheadAttention(self.embed_dim, self.n_heads)
+        self.attention_score = [torch.zeros(1)]
 
     def _get_key_padding_mask(self, key):
         key_len = key.shape[0]
@@ -150,14 +160,23 @@ class Attention_Model(nn.Module):
         target_len = x.shape[0]
         batch_size = x.shape[1]
         out = torch.zeros_like(x)
-        attention_score = torch.zeros((batch_size, target_len, target_len))
+        self.attention_score = [torch.zeros(1)] * target_len
+        # attention_score = torch.zeros((batch_size, target_len, target_len))
         for i in range(target_len):
             mask = adj[i].repeat(batch_size, 1)
-            out[i: i + 1], attention_score[:, i: i + 1] = self.attention(x[i].unsqueeze(0).clone(), x, x,
-                                                                         key_padding_mask=mask)
+            out[i: i + 1], att = self.attention(x[i].unsqueeze(0).clone(),
+                                                x, x, key_padding_mask=mask)
+            self.attention_score[i] = att
         # [batch_size, seq_len, embedding_dim]
         out = out.permute((1, 0, 2))
-        return out, attention_score
+        return out
+
+    def get_attention_score(self, i, adj):
+        att = self.attention_score[i].cpu().detach().numpy()
+        att = att[:, :, adj[i]]
+        att = np.squeeze(att, axis=1)
+        return att
+        # return self.attention_score[i].squeeze(1).cpu().detach().numpy()
     # def forward(self, x, neighbors):
     #     key_padding_mask = self._get_key_padding_mask(neighbors)
     #     if key_padding_mask.all():

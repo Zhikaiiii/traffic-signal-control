@@ -23,9 +23,10 @@ class Basic_Agents:
         self.batch_size = config['batch_size']
         self.buffer_size = config['buffer_size']
         self.buffer = Replay_Buffer(self.buffer_size, self.batch_size)
+
+        self.lr = config['lr']
         self.tau = config['tau']
         self.agents = []
-        self.optimizer = []
 
         self.update_step = config['update_step']
         self.curr_step = 0
@@ -45,7 +46,7 @@ class Basic_Agents:
             # para = chain(self.embedding.parameters(), self.agents[i].get_q_network().parameters())
             # self.optimizer.append(optim.Adam(self.agents[i].get_q_network().parameters(), lr=1e-3))
         # self.all_para = chain(self.all_para)
-        self.share_optimizer = optim.Adam(self.all_para, lr=1e-3)
+        self.share_optimizer = optim.RMSprop(self.all_para, lr=self.lr, weight_decay=1e-4)
 
     def get_agent(self, i):
         return self.agents[i]
@@ -58,13 +59,6 @@ class Basic_Agents:
         action = np.asarray(action)
         self.curr_step += 1
         return action
-
-    def store_experience(self, states, actions, rewards, next_states, is_dones):
-        self.buffer.store_experience(states, actions, rewards, next_states, is_dones)
-
-    def sample_experience(self):
-        states, actions, rewards, next_states, is_dones = self.buffer.sample_experience()
-        return states, actions, rewards, next_states, is_dones
 
     def learn(self):
         # if self.curr_step > 0 and self.curr_step % self.update_step == 0:
@@ -101,6 +95,16 @@ class Basic_Agents:
             self._update_sharing_target_network()
             # self.share_optimizer.zero_grad()
 
+    def get_share_para(self):
+        return dict(self.embedding.named_parameters())
+
+    def store_experience(self, states, actions, rewards, next_states, is_dones):
+        self.buffer.store_experience(states, actions, rewards, next_states, is_dones)
+
+    def sample_experience(self):
+        states, actions, rewards, next_states, is_dones = self.buffer.sample_experience()
+        return states, actions, rewards, next_states, is_dones
+
     def _get_embedding(self, state):
         return self.embedding(state)
 
@@ -110,6 +114,9 @@ class Basic_Agents:
     def _update_sharing_target_network(self):
         Dueling_DDQN_Learner.soft_update_of_target_network(self.embedding, self.embedding_target, self.tau)
 
+    def get_attention_score(self, i):
+        return -1
+
     def _scale_shared_grads(self):
         """
         Scale gradients for parameters that are shared since they accumulate
@@ -117,3 +124,17 @@ class Basic_Agents:
         """
         for p in self.share_para:
             p.grad.data.mul_(1. / self.num_agents)
+
+    def save_model(self, path):
+        share_model_name = path + '/share_model.pkl'
+        torch.save(self.embedding.state_dict(), share_model_name)
+        for i in range(self.num_agents):
+            unique_model_name = path + '/q_network_%d.pkl' % i
+            torch.save(self.agents[i].q_network_current.state_dict(), unique_model_name)
+
+    def load_model(self, path):
+        share_model_name = path + '/share_model.pkl'
+        self.embedding.load_state_dict(torch.load(share_model_name, map_location=self.device))
+        for i in range(self.num_agents):
+            unique_model_name = path + '/q_network_%d.pkl' % i
+            self.agents[i].q_network_current.load_state_dict(torch.load(unique_model_name, map_location=self.device))

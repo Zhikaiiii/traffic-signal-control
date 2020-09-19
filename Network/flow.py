@@ -102,7 +102,7 @@ class FlowHelper(object):
                      min_volume, max_volume, offset):
         """Add sin(t) time-vary flow."""
         time_slots = np.linspace(begin, end, n_slots + 1)
-        angles = np.linspace(0+offset, 360+offset, n_slots)
+        angles = np.linspace(0+offset, 180+offset, n_slots)
         volumes = (max_volume + min_volume)/2 + (max_volume - min_volume)/2 * np.sin(angles * np.pi / 180)
         for i, vol in enumerate(volumes):
             flow_dict = {'id': id_prefix + str(i), 'type': vehicle_type,
@@ -112,14 +112,31 @@ class FlowHelper(object):
                          'departSpeed': 'random'}
             node = XMLHelper.create_node("flow", flow_dict)
             XMLHelper.add_child_node(self.tree.getroot(), node)
+        return volumes
+
+    def add_uniform_flow(self, id_prefix, vehicle_type, from_edge, to_edge, begin, end, volume):
+        """Add sin(t) time-vary flow."""
+        # time_slots = np.linspace(begin, end, n_slots + 1)
+        # angles = np.linspace(0+offset, 360+offset, n_slots)
+        # volumes = (max_volume + min_volume)/2 + (max_volume - min_volume)/2 * np.sin(angles * np.pi / 180)
+        # for i, vol in enumerate(volumes):
+        flow_dict = {'id': id_prefix, 'type': vehicle_type,
+                     'from': from_edge, 'to': to_edge,
+                     'begin': str(begin), 'end': str(end),
+                     'vehsPerHour': str(int(volume)), 'departLane': "random",
+                     'departSpeed': 'random'}
+        node = XMLHelper.create_node("flow", flow_dict)
+        XMLHelper.add_child_node(self.tree.getroot(), node)
 
     def add_linear_flow(self, id_prefix, vehicle_type, from_edge, to_edge, begin, end, n_slots,
                         begin_volume, end_volume):
         """Add linear flow"""
         time_slots = np.linspace(begin, end, n_slots + 1)
         add_volume = (end_volume - begin_volume) / (2 * n_slots)
+        volumes = []
         for i in range(n_slots):
             vol = begin_volume + (2 * i + 1) * add_volume
+            volumes.append(vol)
             flow_dict = {'id': id_prefix + str(i), 'type': vehicle_type,
                          'from': from_edge, 'to': to_edge,
                          'begin': str(int(time_slots[i])), 'end': str(int(time_slots[i+1])),
@@ -127,3 +144,5 @@ class FlowHelper(object):
                          'departSpeed': 'random'}
             node = XMLHelper.create_node("flow", flow_dict)
             XMLHelper.add_child_node(self.tree.getroot(), node)
+        volumes = np.asarray(volumes)
+        return volumes

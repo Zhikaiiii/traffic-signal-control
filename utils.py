@@ -40,5 +40,6 @@ def get_configuration(config_file):
     config['update_step'] = content['agent'].getint('update_step')
     config['gamma'] = content['agent'].getfloat('gamma')
     config['tau'] = content['agent'].getfloat('tau')
+    config['epsilon_init'] = content['agent'].getfloat('epsilon_init')
     config['epsilon_final'] = content['agent'].getfloat('epsilon_final')
     return config

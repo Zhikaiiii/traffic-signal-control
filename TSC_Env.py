@@ -1,4 +1,5 @@
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import warnings
@@ -18,15 +19,18 @@ from Agents.LSTM_Attention_Agents import LSTM_Attention_Agents
 import random
 
 # 路网结构
-NEIGHBOR_MAP = {'I0': ['I1', 'I3'],
-                'I1': ['I0', 'I2', 'I4'],
-                'I2': ['I1', 'I5'],
-                'I3': ['I0', 'I4', 'I6'],
-                'I4': ['I1', 'I3', 'I5', 'I7'],
-                'I5': ['I2', 'I4', 'I8'],
-                'I6': ['I3', 'I7'],
-                'I7': ['I4', 'I6', 'I8'],
-                'I8': ['I5', 'I7']}
+# NEIGHBOR_MAP = {'nt1': ['nt2', 'nt6'], 'nt2': ['nt1', 'nt3', 'nt7'], 'nt3': ['nt2', 'nt4', 'nt8'],
+#                 'nt4': ['nt3', 'nt5', '']
+#                 }
+# NEIGHBOR_MAP = {'I0': ['I1', 'I3'],
+#                 'I1': ['I0', 'I2', 'I4'],
+#                 'I2': ['I1', 'I5'],
+#                 'I3': ['I0', 'I4', 'I6'],
+#                 'I4': ['I1', 'I3', 'I5', 'I7'],
+#                 'I5': ['I2', 'I4', 'I8'],
+#                 'I6': ['I3', 'I7'],
+#                 'I7': ['I4', 'I6', 'I8'],
+#                 'I8': ['I5', 'I7']}
 # NEIGHBOR_MAP = {'I0': ['I1', 'I2'],
 #                 'I1': ['I0', 'I3'],
 #                 'I2': ['I0', 'I3'],
@@ -45,25 +49,25 @@ class Traffic_Node:
         self.name = name
         self.neighbor = neighbor
         self.lanes_in = []
-        # self.ilds_in = []
 
 
 # SUMO环境的设置
 class TSC_Env:
-    def __init__(self, name, para_config, gui=False):
+    def __init__(self, name, para_config, gui=False, port=4300):
         self.name = name
         self.sumo_config = './Data/networks/data' + ('/%s/%s.sumocfg' % (self.name, self.name))
         self.para_config = para_config
+        self.port = port
+
+        # store local state and action of intersection
         self.node_name = []
         self.node_dict = {}
-        # store local state and action of intersection
         self.curr_action = {}
         self.obs = {}
-        # self.curr_obs = {}
-        # self.pre_obs = {}
+
         # road network structure and parameter
         self.phase_map = PHASE_MAP
-        self.neighbor_map = NEIGHBOR_MAP
+        self.neighbor_map = self._get_neighbor_map(3, 'I')
         self.yellow_duration = para_config['yellow_duration']
         self.green_duration = para_config['green_duration']
         self.control_interval = self.yellow_duration + self.green_duration
@@ -84,23 +88,31 @@ class TSC_Env:
         self.sim_seed = para_config['sim_seed']
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.seq_len = para_config['seq_len'] + 1 if self.agent_type == 'IQL_Double_Attention' else 2
-        # 记录路网指标
+
+        # train-test spilt
         self.split_ratio = 0.75
-        self.split = int(self.max_step * self.split_ratio // self.control_interval)
+        self.split = int((self.max_step // self.control_interval + 1) * self.split_ratio)
+        idx = np.arange(self.max_step // self.control_interval + 1)
+        self.train_idx = np.zeros_like(idx, dtype=bool)
+        self.train_idx[0:self.split] = True
+        self.test_idx = ~self.train_idx
         self.test = False
+
         # step
-        self.para = []
         self.step_reward = []
         self.step_sum_waiting_time = []
         self.step_avg_speed = []
         self.step_sum_queue_length = []
         self.step_data = []
+
         # episode
+        self.para = {}
         self.metric_data = []
         self.train_episode_reward = []
         self.train_episode_avg_reward = []
         self.test_episode_reward = []
         self.test_episode_avg_reward = []
+
         # attention_score
         # Grid9 center intersection
         self.attention_score = []
@@ -117,11 +129,12 @@ class TSC_Env:
         command += ['--time-to-teleport', '300']
         command += ['--no-warnings', 'True']
         command += ['--duration-log.disable', 'True']
-        traci.start(command, port=4343)
+        traci.start(command, port=self.port)
         self._init_node()
+
         # set agent
         input_dim = [self.num_states_phase, self.num_states_obs, self.num_states_lanes]
-        hidden_dim = 32
+        hidden_dim = para_config['hidden_dim']
         output_dim = self.num_actions + 1
         if self.agent_type == 'IQL':
             self.agents = Basic_Agents(self.para_config, len(self.node_name), input_dim, hidden_dim, output_dim)
@@ -156,24 +169,42 @@ class TSC_Env:
             obs = self._get_local_observation(node_name)
             obs_size = (self.seq_len, obs.shape[0], obs.shape[1])
             self.obs[node_name] = np.zeros(obs_size)
-            # for j in range(self.seq_len):
-            #     self.obs[node_name].append(np.zeros_like(obs))
             self.obs[node_name][-1] = obs
-            # self.curr_obs[node_name] = self._get_local_observation(node_name)
-            # self.pre_obs[node_name] = self.curr_obs[node_name]
-        self.node_name = sorted(list(self.node_dict.keys()))
+        self.node_name = list(self.node_dict.keys())
+
+    def _get_neighbor_map(self, num_nodes, node_name):
+        neighbor_map = {}
+        for i in range(num_nodes * num_nodes):
+            neighbors = []
+            row = i // num_nodes
+            column = i - row * num_nodes
+            if column > 0:
+                neighbor = node_name + str(i - 1)
+                neighbors.append(neighbor)
+            if column < num_nodes - 1:
+                neighbor = node_name + str(i + 1)
+                neighbors.append(neighbor)
+            if row > 0:
+                neighbor = node_name + str(i - num_nodes)
+                neighbors.append(neighbor)
+            if row < num_nodes - 1:
+                neighbor = node_name + str(i + num_nodes)
+                neighbors.append(neighbor)
+            node = node_name + str(i)
+            neighbor_map[node] = neighbors
+        return neighbor_map
 
     def step_act(self):
-        self._simulate(12)
+        self._simulate(self.control_interval)
         is_done = False
         reward = []
         for node in self.node_name:
-            self.curr_obs[node] = self._get_local_observation(node)
-            node_reward = self._get_reward(self.curr_obs[node])
+            self.obs[node][0:-1] = self.obs[node][1:]
+            self.obs[node][-1] = self._get_local_observation(node)
+            node_reward = self._get_reward(self.obs[node][-1])
             reward.append(node_reward[-1])
             if self.max_step == self.curr_step:
                 is_done = True
-        # self.step_reward.append(total_reward)
         self._measure_step(reward)
         return is_done
 
@@ -183,16 +214,16 @@ class TSC_Env:
         obs = self._get_observation()
         action = self.agents.step(obs, self.test)
         for i, node in enumerate(self.node_name):
-            # obs = self._get_observation(node)
-            # action = self.agents.get_agent(i).step(obs)
             if self.curr_action[node] == action[i]:
                 self._set_green_phase(node)
             else:
                 self._set_yellow_phase(node)
             self.curr_action[node] = action[i]
-            # get attention_score
-            # if i == 4:
-            #     self.attention_score.append(self.agents.get_attention_score(i)[:, 0])
+        # get attention_score
+        if self.agent_type != 'IQL':
+            if self.curr_step == 0:
+                self.attention_score = []
+            self.attention_score.append(self.agents.get_attention_score(4))
 
         # 执行黄灯
         self._simulate(self.yellow_duration)
@@ -202,60 +233,25 @@ class TSC_Env:
         self._simulate(self.green_duration)
         is_done = False
         reward = []
+
         # update local observation， get local reward
         for node in self.node_name:
-            # self.pre_obs[node] = self.curr_obs[node]
-            # self.curr_obs[node] = self._get_local_observation(node)
             self.obs[node][0:-1] = self.obs[node][1:]
             self.obs[node][-1] = self._get_local_observation(node)
-            # node_reward = self._get_reward(self.curr_obs[node])
             node_reward = self._get_reward(self.obs[node][-1])
             reward.append(node_reward[-1])
+
         # get next state
         next_obs = self._get_observation()
         if self.max_step == self.curr_step:
             is_done = True
-            self.agents.learn()
-        if self.curr_step / self.max_step < 0.75:
+        if self.train_idx[self.curr_control_step]:
             self.agents.store_experience(obs, action, reward, next_obs, is_done)
-            # self.test = True
-
-        # for i, node in enumerate(self.node_name):
-        #     obs = self._get_observation(node, True)
-        #     next_obs = self._get_observation(node)
-        #     if self.max_step == self.curr_step:
-        #         is_done = True
-        #     # 每个episode的后25%是测试集
-        #     if self.curr_step / self.max_step < 0.75:
-        #         self.agents.get_agent(i).store_experience(obs, self.curr_action[node], reward[i], next_obs, is_done)
-        #         self.agents.get_agent(i).learn()
         self._measure_step(reward)
+        self.curr_control_step += 1
+        if is_done:
+            self.agents.learn()
         return is_done
-
-    # def step_test(self):
-    #     for node in self.node_name:
-    #         state = self._get_local_observation(node)
-    #         # action = np.random.randint(0, 4)
-    #         action = self.node_agent[node].step(state)
-    #         if self.curr_action[node] == action:
-    #             self._set_green_phase(node)
-    #         else:
-    #             self._set_yellow_phase(node)
-    #         self.curr_action[node] = action
-    #     # 执行黄灯
-    #     self._simulate(self.yellow_duration)
-    #     for node in self.node_dict:
-    #         self._set_green_phase(node)
-    #     # 执行绿灯
-    #     self._simulate(self.green_duration)
-    #     reward = []
-    #     for node in self.node_name:
-    #         next_state = self._get_local_observation(node)
-    #         node_reward = self._get_reward(next_state)
-    #         reward.append(node_reward[-1])
-    #         self.curr_obs[node] = next_state
-    #     self._measure_step(reward)
-    #     return self.max_step == self.curr_step
 
     def _set_yellow_phase(self, node_name):
         current_phase = traci.trafficlight.getPhase(node_name)
@@ -274,13 +270,12 @@ class TSC_Env:
             waiting_time.append(np.sum(obs[:, 0]))
             speed.append(np.mean(obs[:, 1]))
             queue_length.append(np.sum(obs[:, 2]))
-        # waiting_time = waiting_time / len(self.node_name)
-        # speed = speed / len(self.node_name)
-        # queue_length = queue_length / len(self.node_name)
+
         self.step_sum_waiting_time.append(waiting_time)
         self.step_avg_speed.append(speed)
         self.step_sum_queue_length.append(queue_length)
         self.step_reward.append(reward)
+
         info = {'episode': self.curr_episode,
                 'time': self.curr_step,
                 'step': self.curr_step / self.control_interval,
@@ -298,7 +293,7 @@ class TSC_Env:
         obs = []
         for lane, res in ob_res.items():
             f_node, t_node, _ = lane.split('_')
-            if t_node == node_name and (f_node[0] == 'P' or f_node[0] == 'I'):
+            if t_node == node_name and (f_node[0] == 'I' or f_node[0] == 'P'):
                 waiting_time, mean_speed, queue_length = \
                     res[tc.VAR_WAITING_TIME] / 500, res[tc.LAST_STEP_MEAN_SPEED] / 20, \
                     res[tc.LAST_STEP_VEHICLE_HALTING_NUMBER] / 40
@@ -312,6 +307,8 @@ class TSC_Env:
         obs = np.concatenate((obs, phase))
         return obs
 
+    # get observation
+    # pre=True: get last observation
     def _get_observation(self, pre=False):
         obs = []
         for i, node in enumerate(self.node_name):
@@ -370,18 +367,22 @@ class TSC_Env:
         self.step_sum_waiting_time = np.asarray(self.step_sum_waiting_time)
         self.step_avg_speed = np.asarray(self.step_avg_speed)
         self.step_sum_queue_length = np.asarray(self.step_sum_queue_length)
-        train_episode_reward = np.mean(self.step_reward[0:self.split, :], axis=0)
-        test_episode_reward = np.mean(self.step_reward[self.split:, :], axis=0)
 
+        # get episode reward
+        train_episode_reward = np.mean(self.step_reward[self.train_idx, :], axis=0)
+        test_episode_reward = np.mean(self.step_reward[self.test_idx, :], axis=0)
         train_avg_reward = np.sum(train_episode_reward) * 50
         test_avg_reward = np.sum(test_episode_reward) * 50
         self.train_episode_reward.append(train_episode_reward)
         self.test_episode_reward.append(test_episode_reward)
         self.train_episode_avg_reward.append(train_avg_reward)
         self.test_episode_avg_reward.append(test_avg_reward)
-        avg_waiting_time = np.mean(np.sum(self.step_sum_waiting_time[self.split:, :], axis=1)) * 500
-        avg_speed = np.mean(self.step_avg_speed[self.split:, :]) * 20
-        avg_queue_length = np.mean(np.sum(self.step_sum_queue_length[self.split:, :], axis=1)) * 40
+
+        # get criterion
+        avg_waiting_time = np.mean(np.sum(self.step_sum_waiting_time[self.test_idx, :], axis=1)) * 500
+        avg_speed = np.mean(self.step_avg_speed[self.test_idx, :]) * 20
+        avg_queue_length = np.mean(np.sum(self.step_sum_queue_length[self.test_idx, :], axis=1)) * 40
+
         episode_info = {'episode': self.curr_episode,
                         'train_episode_reward': train_episode_reward,
                         'test_episode_reward': test_episode_reward,
@@ -394,103 +395,114 @@ class TSC_Env:
         return train_avg_reward, test_avg_reward, avg_waiting_time, avg_speed, avg_queue_length
 
     def output_data(self):
+
         # episode_reward = np.asarray(self.train_episode_reward)
         train_avg_reward = np.asarray(self.train_episode_avg_reward)
         test_avg_reward = np.asarray(self.test_episode_avg_reward)
-        colors = ['b', 'g', 'r', 'k', 'c', 'm', 'y', '#e24fff', '#524C90', '#845868']
+        colors = ['b', 'g', 'r', 'k', 'c', 'm', 'y', 'yellow', 'tomato', 'silver', 'chocolate',
+                  'cyan', 'hotpink', 'maroon', 'indigo', 'lawngreen']
         plt.figure()
         plt.xlabel('episode')
         plt.ylabel('reward')
         x = np.arange(0, self.num_episode)
-        # for i in range(len(self.node_name)):
-        #     plt.plot(x, episode_reward[:,i], color=colors[i], label=self.node_name[i])
-
         plt.plot(x, train_avg_reward, color=colors[-1], label='train')
         plt.plot(x, test_avg_reward, color=colors[0], label='test')
         plt.legend()
-        fig_name = './Logs/test10/reward_' + self.name + self.agent_type + '.png'
+        num = self.port - 4300
+        fig_name = ('./Logs/test%d/reward_' % num) + self.name + self.agent_type + '.png'
         plt.savefig(fig_name)
         plt.show()
 
-        # plt.figure()
-        # plt.xlabel('episode')
-        # plt.ylabel('attention score')
-        # labels = ['I4', 'I1', 'I3', 'I5', 'I7']
-        # all_attention_score = np.stack(self.episode_attention_score, axis=0)
-        # for i in range(all_attention_score.shape[1]):
-        #     plt.plot(x, all_attention_score[:, i], label=labels[i])
-        # plt.legend()
-        # fig_name = './Data/logs/attention_' + self.name + '.png'
-        # plt.savefig(fig_name)
-        # plt.show()
-        # plt.figure()
-        # plt.xlabel('episode')
-        # plt.ylabel('mean')
-        # for k in self.para:
-        #     data = np.asarray(k)
-        #     plt.plot(x, data[:, 0])
-        # fig_name = './Logs/test6/mean_' + self.name + '.png'
-        # plt.savefig(fig_name)
-        # # plt.legend()
-        # plt.show()
-        # plt.figure()
-        # plt.xlabel('episode')
-        # plt.ylabel('std')
-        # for k in self.para:
-        #     data = np.asarray(k)
-        #     plt.plot(x, data[:, 1])
-        # # plt.legend()
-        # fig_name = './Logs/test6/std_' + self.name + '.png'
-        # plt.savefig(fig_name)
-        # plt.show()
-
         step_data = pd.DataFrame(self.step_data)
-        step_data.to_csv('./Logs/test10/' + ('%s_%s_step.csv' % (self.name, self.agent_type)))
+        step_data.to_csv(('./Logs/test%d/' % num) + ('%s_%s_step.csv' % (self.name, self.agent_type)))
         metric_data = pd.DataFrame(self.metric_data)
-        metric_data.to_csv('./Logs/test10/' + ('%s_%s_metric.csv' % (self.name, self.agent_type)))
+        metric_data.to_csv('./Logs/test%d/' % num + ('%s_%s_metric.csv' % (self.name, self.agent_type)))
+
+        if self.agent_type != 'IQL':
+            plt.figure()
+            plt.xlabel('episode')
+            plt.ylabel('attention score')
+            labels = ['I1', 'I3', 'I4', 'I5', 'I7']
+            all_attention_score = np.stack(self.episode_attention_score, axis=0)
+            for i in range(all_attention_score.shape[1]):
+                plt.plot(x, all_attention_score[:, i], label=labels[i])
+            plt.legend()
+            fig_name = ('./Logs/test%d/attention_' % num) + self.name + '.png'
+            plt.savefig(fig_name)
+            plt.show()
+
+        plt.figure()
+        plt.xlabel('episode')
+        plt.ylabel('mean')
+        i = 0
+        for k in self.para:
+            data = np.asarray(self.para[k])
+            plt.plot(x, data[:, 0], label=k, color=colors[i])
+            i += 1
+        plt.legend()
+        fig_name = ('./Logs/test%d/mean_' % num) + self.name + '.png'
+        plt.savefig(fig_name)
+        plt.show()
+
+        plt.figure()
+        plt.xlabel('episode')
+        plt.ylabel('std')
+        i = 0
+        for k in self.para:
+            data = np.asarray(self.para[k])
+            plt.plot(x, data[:, 1], label=k, color=colors[i])
+            i += 1
+        plt.legend()
+        fig_name = ('./Logs/test%d/std_' % num) + self.name + '.png'
+        plt.savefig(fig_name)
+        plt.show()
+
+        if self.agent_type != 'IQL':
+            step_attention_score = np.concatenate(self.attention_score, axis=0)
+            plt.figure()
+            plt.xlabel('step')
+            plt.ylabel('attention score')
+            labels = ['I4', 'I1', 'I3', 'I5', 'I7']
+            for i in range(step_attention_score.shape[1]):
+                if i == 0:
+                    out = step_attention_score[::2, i]
+                else:
+                    out += step_attention_score[::2, i]
+                plt.plot(out, label=labels[i])
+            plt.legend()
+            fig_name = ('./Logs/test%d/step_attention_' % num) + self.name + '.png'
+            plt.savefig(fig_name)
+            plt.show()
 
     def close(self):
         traci.close()
 
     def _get_para_data(self):
-        para = list(self.agents.share_para)
-        for i, k in enumerate(para):
-            data = k.data
+        para = self.agents.get_share_para()
+        for k in para:
+            data = para[k].data
             avg, std = (torch.mean(data)).cpu().numpy(), (torch.std(data)).cpu().numpy()
-            if len(self.para) == i:
-                self.para.append([])
-            # tmp = self.para.get(k, [])
-            self.para[i].append(np.asarray((avg, std)))
-            # self.para.append((tmp))
+            tmp = self.para.get(k, [])
+            tmp.append(np.stack((avg, std)))
+            # self.para[i].append(np.asarray((avg, std)))
+            self.para[k] = tmp
 
     def reset(self, gui=False):
         self.close()
         self._get_para_data()
         self.curr_episode += 1
-        # if self.curr_episode > 50 and self.agent_type != 'IQL':
-        #     self.agents.change_mode()
         self.curr_step = 0
+        self.curr_control_step = 0
         self.test = False
         self.step_reward = []
         self.step_sum_waiting_time = []
         self.step_sum_queue_length = []
         self.step_avg_speed = []
-        # attention_score = np.mean(np.concatenate(self.attention_score), axis=0)
-        # self.episode_attention_score.append(attention_score)
-        #
-        # if self.curr_episode == self.num_episode:
-        #     step_attention_score = np.concatenate(self.attention_score, axis=0)
-        #     plt.figure()
-        #     plt.xlabel('step')
-        #     plt.ylabel('attention score')
-        #     labels = ['I4', 'I1', 'I3', 'I5', 'I7']
-        #     for i in range(step_attention_score.shape[1]):
-        #         plt.plot(step_attention_score[:,i], label=labels[i])
-        #     plt.legend()
-        #     fig_name = './Data/logs/step_attention_' + self.name + '.png'
-        #     plt.savefig(fig_name)
-        #     plt.show()
-        # self.attention_score = []
+        if self.agent_type != 'IQL':
+            attention_score = np.mean(np.concatenate(self.attention_score), axis=0)
+            self.episode_attention_score.append(attention_score)
+
+
         if gui:
             app = 'sumo-gui'
         else:
@@ -501,7 +513,8 @@ class TSC_Env:
         command += ['--time-to-teleport', '300']
         command += ['--no-warnings', 'True']
         command += ['--duration-log.disable', 'True']
-        traci.start(command, port=4343)
+        command += ['--tripinfo-output', 'output.xml']
+        traci.start(command, port=self.port)
         for i, node_name in enumerate(traci.trafficlight.getIDList()):
             # 订阅junction中每个lane的信息
             traci.junction.subscribeContext(node_name, tc.CMD_GET_LANE_VARIABLE, 100,
@@ -534,14 +547,16 @@ def set_random_seeds(random_seed):
 
 if __name__ == '__main__':
     para_config = get_configuration('para_config.ini')
-    road_network_name = 'Grid9'
+    road_network_name = 'Grid9_uni'
     total_episodes = para_config['total_episodes']
+    gui = para_config['gui']
     warnings.filterwarnings('ignore')
     print(para_config)
     print(road_network_name)
     sim_seed = para_config['sim_seed']
     set_random_seeds(sim_seed)
-    road_network = TSC_Env(road_network_name, para_config)
+    road_network = TSC_Env(road_network_name, para_config, gui, port=4350)
+    # road_network.agents.load_model('./Logs/test19/model/')
     # reward_total = []
     for i in tqdm(range(total_episodes)):
         while not road_network.step():
@@ -556,6 +571,7 @@ if __name__ == '__main__':
         print('epsilon', road_network.agents.agents[0].epsilon)
         # reward_total.append(reward)
         road_network.reset()
+    # road_network.agents.save_model('./Logs/test19/model/')
     road_network.output_data()
     road_network.close()
     #

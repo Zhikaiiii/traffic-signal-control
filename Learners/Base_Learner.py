@@ -19,7 +19,8 @@ class Base_Learner:
         self.tau = config['tau']
         self.gamma = config['gamma']
         self.epsilon_final = config['epsilon_final']
-        self.epsilon = 1
+        self.epsilon_init = config['epsilon_init']
+        self.epsilon = self.epsilon_init
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
         # 状态数和行动数
@@ -70,7 +71,7 @@ class Base_Learner:
 
     def update_epsilon_exploration(self, current_episode):
         self.epsilon = max(self.epsilon_final, self.epsilon_final +
-                           (1 - self.epsilon_final) * (1 - 2 * current_episode/ self.total_episodes))
+                           (self.epsilon_init - self.epsilon_final) * (1 - 2 * current_episode/ self.total_episodes))
 
     # def reset(self):
     #     self.curr_step = 0

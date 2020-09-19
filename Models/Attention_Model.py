@@ -77,4 +77,7 @@ class Attention_Model(nn.Module):
             self.attention = attention_layer
 
     def get_attention_score(self):
-        return self.attention_score.cpu().detach().numpy()
+        att = self.attention_score.cpu().detach().numpy()
+        idx = np.nonzero(att)
+        att = att(idx)
+        return att

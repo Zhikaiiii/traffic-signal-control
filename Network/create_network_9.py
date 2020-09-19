@@ -1,8 +1,11 @@
 import os
 import random
+import numpy as np
 from Network.flow import FlowHelper
+import matplotlib.pyplot as plt
 
-PATH = '../Data/networks/data/'
+# PATH = '../networks'
+PATH = 'data/'
 INTERSECTION_DISTANCE = 500
 END_DISTANCE = 200
 N_INTERSECTION = 3
@@ -145,19 +148,22 @@ class NetworkGenerator():
     def gen_tll_file(self):
         random.seed()
         path = self.path + self.name_network +'.tll.xml'
-        tls_str = '  <tlLogic id="%s" programID="0" offset="%d" type="actuated">\n'
-        phase_str = '    <phase duration="%d" minDur="%d" maxDur="%d" state="%s"/>\n'
+        tls_str = '  <tlLogic id="%s" programID="0" offset="%d" type="static">\n'
+        phase_str = '    <phase duration="%d" state="%s"/>\n'
+        # tls_str = '  <tlLogic id="%s" programID="0" offset="%d" type="actuated">\n'
+        # phase_str = '    <phase duration="%d" minDur="%d" maxDur="%d" state="%s"/>\n'
         tls_context = '<additional>\n'
-        phases = [('GGGrrrrrGGGrrrrr',15,5,30), ('yyyrrrrryyyrrrrr',2,2,2),
-                 ('rrrGrrrrrrrGrrrr',15,5,30), ('rrryrrrrrrryrrrr',2,2,2),
-                 ('rrrrGGGrrrrrGGGr',15,5,30), ('rrrryyyrrrrryyyr',2,2,2),
-                 ('rrrrrrrGrrrrrrrG',15,5,30), ('rrrrrrryrrrrrrry',2,2,2)]
+        phases = [('GGGrrrrrGGGrrrrr',10,5,30), ('yyyrrrrryyyrrrrr',2,2,2),
+                 ('rrrGrrrrrrrGrrrr',10,5,30), ('rrryrrrrrrryrrrr',2,2,2),
+                 ('rrrrGGGrrrrrGGGr',10,5,30), ('rrrryyyrrrrryyyr',2,2,2),
+                 ('rrrrrrrGrrrrrrrG',10,5,30), ('rrrrrrryrrrrrrry',2,2,2)]
         for ind in range(self.n_intersection*self.n_intersection):
             offset = random.randint(0,20)
             node_id = 'I' + str(ind)
             tls_context += tls_str % (node_id, offset)
             for (state, duration, min_dur, max_dur) in phases:
-                tls_context += phase_str % (duration, min_dur, max_dur, state)
+                # tls_context += phase_str % (duration, min_dur, max_dur, state)
+                tls_context += phase_str % (duration, state)
             tls_context += '  </tlLogic>\n'
         tls_context += '</additional>\n'
         self._write_file(path, tls_context)
@@ -187,14 +193,39 @@ class NetworkGenerator():
         flows_context += '</routes>\n'
         self._write_file(path, flows_context)
         flows = FlowHelper(path)
-        flows.add_sin_flow('flow_sin_1', 'type1', 'P0_I0', 'I7_P4', 0, 3600, 20, 100, 600, 0)
-        flows.add_sin_flow('flow_sin_2', 'type1', 'P7_I3', 'I2_P2', 0, 3600, 20, 80, 500, 90)
-        flows.add_sin_flow('flow_sin_3', 'type1', 'P9_I2', 'I6_P3', 0, 3600, 20, 100, 700, 180)
+        volume = []
+        # volume.append(flows.add_sin_flow('flow_sin_1', 'type1', 'P1_I1', 'I7_P4', 0, 3600, 20, 300, 1100, 90))
+        # volume.append(flows.add_sin_flow('flow_sin_2', 'type1', 'P7_I3', 'I5_P10', 0, 3600, 20, 300, 1100, 270))
+        # flows.add_linear_flow('flow_sin_3', 'type1', 'P10_I5', 'I3_P7', 0, 1800, 20, 100, 400)
+        # flows.add_linear_flow('flow_sin_4', 'type1', 'P4_I7', 'I1_P1', 1800, 3600, 20, 300, 200)
+        # flows.add_sin_flow('flow_sin_1', 'type1', 'P0_I0', 'I7_P4', 0, 3600, 20, 100, 600, 0)
+        # flows.add_sin_flow('flow_sin_2', 'type1', 'P7_I3', 'I2_P2', 0, 3600, 20, 80, 500, 90)
+        # flows.add_sin_flow('flow_sin_3', 'type1', 'P10_I2', 'I6_P3', 0, 1800, 20, 100, 700, 180)
         # flows.add_sin_flow('flow_sin_4', 'type1', 'P4_I7', 'I0_P6', 0, 3600, 20, 120, 600, 270)
-        flows.add_linear_flow('flow_line_1', 'type1', 'P5_I8', 'I1_P1', 0, 3600, 20, 0, 400)
-        flows.add_linear_flow('flow_line_2', 'type1', 'P10_I5', 'I6_P8', 0, 3600, 20, 400, 0)
-        flows.add_linear_flow('flow_line_3', 'type1', 'P6_I0', 'I8_P11', 0, 3600, 20, 200, 500)
+        # flows.add_linear_flow('flow_line_1', 'type1', 'P5_I8', 'I1_P1', 0, 3600, 20, 0, 400)
+        # flows.add_linear_flow('flow_line_2', 'type1', 'P10_I5', 'I6_P8', 0, 3600, 20, 400, 0)
+        # flows.add_linear_flow('flow_line_3', 'type1', 'P6_I0', 'I8_P11', 0, 3600, 20, 200, 500)
+        volume.append(flows.add_sin_flow('flow_sin_1', 'type1', 'P0_I0', 'I7_P4', 0, 3600, 20, 200, 800, 0))
+        volume.append(flows.add_sin_flow('flow_sin_2', 'type1', 'P7_I3', 'I2_P2', 0, 3600, 20, 200, 700, 90))
+        volume.append(flows.add_sin_flow('flow_sin_3', 'type1', 'P9_I2', 'I6_P3', 0, 3600, 20, 100, 900, 270))
+        # flows.add_sin_flow('flow_sin_4', 'type1', 'P4_I7', 'I0_P6', 0, 3600, 20, 120, 600, 270)
+        volume.append(flows.add_sin_flow('flow_sin_4', 'type1', 'P5_I8', 'I1_P1', 0, 3600, 20, 100, 700, 30))
+        volume.append(flows.add_sin_flow('flow_sin_5', 'type1', 'P10_I5', 'I6_P8', 0, 3600, 20, 200, 900, 60))
+        volume.append(flows.add_sin_flow('flow_sin_6', 'type1', 'P6_I0', 'I8_P11', 0, 3600, 20, 300, 800, 240))
         # flows.add_linear_flow('flow_line_4', 'type1', 'P3_I6', 'I2_P2', 0, 3600, 20, 500, 200)
+        time_slot = np.linspace(0, 3600, 20)
+        volume = np.asarray(volume)
+        labels = ['I0->I7', 'I3->I2', 'I2->I6', 'I8->I1', 'I5->I6', 'I0->I8']
+        plt.figure()
+        for i in range(6):
+            plt.plot(time_slot, volume[i],label=labels[i])
+        # plt.plot(time_slot, np.sum(volume, axis=0))
+        plt.legend()
+        plt.show()
+        # flows.add_uniform_flow('flow1', 'type1', 'P4_I7', 'I1_P1', 0, 3600, 300)
+        # flows.add_uniform_flow('flow2', 'type1', 'P10_I5', 'I3_P7', 0, 3600, 300)
+        # flows.add_uniform_flow('flow3', 'type1', 'P11_I8', 'I3_P7', 0, 3600, 1100)
+        # flows.add_uniform_flow('flow4', 'type1', 'P9_I2', 'I7_P4', 0, 3600, 1000)
         flows.write_xml(path)
     
     def _init_flow(self, init_density):
@@ -271,6 +302,6 @@ class NetworkGenerator():
         self._write_file(path, config_context)
 
 if __name__=='__main__':
-    ng = NetworkGenerator('Grid9')
+    ng = NetworkGenerator('Grid9_heavy3')
     ng.create_network(init_density=0.2, seed=49)
     # ng.gen_net_file()

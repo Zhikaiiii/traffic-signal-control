@@ -13,18 +13,19 @@ import numpy as np
 class Attention_Agents(Basic_Agents):
     def __init__(self, config, num_agents, input_dim, hidden_dim, output_dim, neighbor_map, node_name):
         super().__init__(config, num_agents, input_dim, hidden_dim, output_dim)
-
         # self.q_network = Attention_Model(self.input_dim, self.output_dim, self.hidden_dim).to(self.device)
         # self.q_network_target = Attention_Model(self.input_dim, self.output_dim, self.hidden_dim).to(self.device)
         self._init_agents()
+
         self.adj = self._get_adj(neighbor_map, node_name)
 
     def _init_agents(self):
         # parameter sharing
+        self.n_heads = self.config['n_heads']
         self.embedding = Embedding_Layer(self.input_dim, self.hidden_dim).to(self.device)
-        self.attention = Attention_Model(self.hidden_dim).to(self.device)
+        self.attention = Attention_Model(self.hidden_dim, self.n_heads).to(self.device)
         self.embedding_target = Embedding_Layer(self.input_dim, self.hidden_dim).to(self.device)
-        self.attention_target = Attention_Model(self.hidden_dim).to(self.device)
+        self.attention_target = Attention_Model(self.hidden_dim, self.n_heads).to(self.device)
         Dueling_DDQN_Learner.copy_network(self.embedding, self.embedding_target)
         Dueling_DDQN_Learner.copy_network(self.attention, self.attention_target)
         # self.share_optimizer = optim.Adam(chain(self.embedding.parameters(), self.attention.parameters()), lr=1e-3)
@@ -35,25 +36,16 @@ class Attention_Agents(Basic_Agents):
             self.agents.append(Dueling_DDQN_Learner(self.config))
             self.all_para = chain(self.all_para, self.agents[i].get_q_network().parameters())
         # self.all_para = chain(self.all_para)
-        self.share_optimizer = optim.Adam(self.all_para, lr=1e-3)
-        # for i in range(self.num_agents):
-        #     q_network = Attention_Model(self.input_dim, self.output_dim, self.hidden_dim).to(self.device)
-        #     q_network_target = Attention_Model(self.input_dim, self.output_dim, self.hidden_dim).to(self.device)
-        #     q_network.set_layer_para(self.embedding, self.attention)
-        #     q_network_target.set_layer_para(self.embedding_target, self.attention_target)
-        #     self.agents[i].set_q_network(q_network, q_network_target)
-
-    def get_attention_score(self, i):
-        return self.agents[i].get_q_network().get_attention_score()
+        self.share_optimizer = optim.RMSprop(self.all_para, lr=self.lr, weight_decay=1e-4)
 
     def _get_embedding(self, state):
         state_embedding = self.embedding(state)
-        state_attention, _ = self.attention(state_embedding, self.adj)
+        state_attention = self.attention(state_embedding, self.adj)
         return state_attention
 
     def _get_embedding_target(self, state):
         state_embedding_target = self.embedding_target(state)
-        state_attention_target, _ = self.attention_target(state_embedding_target, self.adj)
+        state_attention_target = self.attention_target(state_embedding_target, self.adj)
         return state_attention_target
 
     def _update_sharing_target_network(self):
@@ -66,12 +58,18 @@ class Attention_Agents(Basic_Agents):
             adj[i][i] = True
             for neighbor in neighbor_map[node]:
                 idx = node_name.index(neighbor)
+                # idx = int(neighbor[2:] - 1)
                 adj[i][idx] = True
         return adj
 
+    def get_attention_score(self, i):
+        att = self.attention.get_attention_score(i, self.adj)
+        return att
 
-
-
+    def get_share_para(self):
+        dic1 = dict(self.embedding.named_parameters())
+        dic2 = dict(self.attention.named_parameters())
+        return dict(dic1, **dic2)
 
 
 
