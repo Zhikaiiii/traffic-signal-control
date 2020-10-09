@@ -1,8 +1,6 @@
 import matplotlib
-
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import warnings
 import torch
 import traci
 import traci.constants as tc
@@ -10,13 +8,11 @@ import numpy as np
 import pandas as pd
 import logging
 from sumolib import checkBinary
-from utils import get_configuration
-from tqdm import tqdm
 from Agents.Attention_Agents import Attention_Agents
 from Agents.Basic_Agents import Basic_Agents
 from Agents.Double_Attention_Agents import Double_Attention_Agents
 from Agents.LSTM_Attention_Agents import LSTM_Attention_Agents
-import random
+from tqdm import tqdm
 
 # 路网结构
 # NEIGHBOR_MAP = {'nt1': ['nt2', 'nt6'], 'nt2': ['nt1', 'nt3', 'nt7'], 'nt3': ['nt2', 'nt4', 'nt8'],
@@ -526,61 +522,23 @@ class TSC_Env:
             #     self.agents.get_agent(i).update_epsilon_exploration(self.curr_episode)
             self.agents.get_agent(i).update_epsilon_exploration(self.curr_episode)
 
+    def run(self):
+        for i in tqdm(range(self.num_episode)):
+            while not self.step():
+                pass
+            train_reward, test_reward, waiting_time, speed, queue_length = env.get_episode_reward()
+            print('episode:', i)
+            print('train_reward:', train_reward)
+            print('test_reward', test_reward)
+            print('waiting_time:', waiting_time)
+            print('speed:', speed)
+            print('queue_length', queue_length)
+            # reward_total.append(reward)
+            self.reset()
     # def set_agent(self):
     #     for node in self.node_name:
     #         model_name = './models/model_' + node + '.pkl'
     #         self.node_agent[node].load_q_network(model_name)
 
 
-# 设置随机数种子
-def set_random_seeds(random_seed):
-    """Sets all possible random seeds so results can be reproduced"""
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    torch.manual_seed(random_seed)
-    random.seed(random_seed)
-    np.random.seed(random_seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(random_seed)
-        torch.cuda.manual_seed(random_seed)
 
-
-if __name__ == '__main__':
-    para_config = get_configuration('para_config.ini')
-    road_network_name = 'Grid9_uni'
-    total_episodes = para_config['total_episodes']
-    gui = para_config['gui']
-    warnings.filterwarnings('ignore')
-    print(para_config)
-    print(road_network_name)
-    sim_seed = para_config['sim_seed']
-    set_random_seeds(sim_seed)
-    road_network = TSC_Env(road_network_name, para_config, gui, port=4350)
-    # road_network.agents.load_model('./Logs/test19/model/')
-    # reward_total = []
-    for i in tqdm(range(total_episodes)):
-        while not road_network.step():
-            pass
-        train_reward, test_reward, waiting_time, speed, queue_length = road_network.get_episode_reward()
-        print('episode:', i)
-        print('train_reward:', train_reward)
-        print('test_reward', test_reward)
-        print('waiting_time:', waiting_time)
-        print('speed:', speed)
-        print('queue_length', queue_length)
-        print('epsilon', road_network.agents.agents[0].epsilon)
-        # reward_total.append(reward)
-        road_network.reset()
-    # road_network.agents.save_model('./Logs/test19/model/')
-    road_network.output_data()
-    road_network.close()
-    #
-    # road_network_test = TSC_Env('Grid9', para_config, gui=True)
-    # road_network_test.set_agent()
-    # while not road_network.step_test():
-    #     pass
-    # reward, waiting_time, speed, queue_length = road_network.get_episode_reward()
-    # print('reward:', reward)
-    # print('waiting_time:', waiting_time)
-    # print('speed:', speed)
-    # print('queue_length', queue_length)
