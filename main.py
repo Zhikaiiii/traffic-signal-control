@@ -22,3 +22,4 @@ if __name__ == '__main__':
         env.agents.save_model(args.save_model_dir)
     env.output_data()
     env.close()
+    print('wzk')
