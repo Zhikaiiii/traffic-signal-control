@@ -153,6 +153,10 @@ class NetworkGenerator():
         # tls_str = '  <tlLogic id="%s" programID="0" offset="%d" type="actuated">\n'
         # phase_str = '    <phase duration="%d" minDur="%d" maxDur="%d" state="%s"/>\n'
         tls_context = '<additional>\n'
+        # phases = [('GGrrrrGGrrrr',10,5,30), ('yyrrrryyrrrr',2,2,2),
+        #          ('rrGrrrrrGrrr',10,5,30), ('rryrrrrryrrr',2,2,2),
+        #          ('rrrGGrrrrGGr',10,5,30), ('rrryyrrrryyr',2,2,2),
+        #          ('rrrrrGrrrrrG',10,5,30), ('rrrrryrrrrry',2,2,2)]
         phases = [('GGGrrrrrGGGrrrrr',10,5,30), ('yyyrrrrryyyrrrrr',2,2,2),
                  ('rrrGrrrrrrrGrrrr',10,5,30), ('rrryrrrrrrryrrrr',2,2,2),
                  ('rrrrGGGrrrrrGGGr',10,5,30), ('rrrryyyrrrrryyyr',2,2,2),
@@ -302,6 +306,6 @@ class NetworkGenerator():
         self._write_file(path, config_context)
 
 if __name__=='__main__':
-    ng = NetworkGenerator('Grid9_heavy3')
+    ng = NetworkGenerator('Grid9_new')
     ng.create_network(init_density=0.2, seed=49)
     # ng.gen_net_file()
