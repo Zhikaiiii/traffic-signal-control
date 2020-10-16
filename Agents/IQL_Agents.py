@@ -7,6 +7,7 @@ from Agents.Basic_Agents import Basic_Agents
 from Learners.Dueling_DDQN_Learner import Dueling_DDQN_Learner
 from Models.Basic_Model import Base_Model
 
+
 # IQL_Agents with all parameters sharing
 class IQL_Agents(Basic_Agents):
     def __init__(self, config, num_agents, input_dim, hidden_dim, output_dim):
@@ -37,9 +38,9 @@ class IQL_Agents(Basic_Agents):
             # next_states_embedding = self._get_embedding(next_states)
             # next_states_embedding_target = self._get_embedding_target(next_states)
             total_loss = 0
-            for i in range(self.num_agents):
+            for i in range(states.shape[1]):
                 actions_values_current = self.learner.cal_current_actions_value(states[:, i], next_states[:, i],
-                                                                                  rewards[:, i], is_dones)
+                                                                                rewards[:, i], is_dones)
                 actions_values_expected = self.learner.cal_expected_actions_value(states[:, i], actions[:, i])
                 loss = F.mse_loss(actions_values_expected, actions_values_current)
                 # loss.backward(retain_graph=True)
@@ -56,7 +57,7 @@ class IQL_Agents(Basic_Agents):
 
     def step(self, state, test=False):
         action = []
-        for i in range(self.num_agents):
+        for i in range(state.shape[1]):
             action.append(self.learner.step(state[:, i], test))
         action = np.asarray(action)
         self.curr_step += 1

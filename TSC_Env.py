@@ -214,24 +214,30 @@ class TSC_Env:
     # 是env里面切换一次信号灯状态
     def step(self):
         # get observation
-        obs = self._get_observation()
+        if self.train_idx[self.curr_control_step]:
+            RL_node_list = [4]
+        else:
+            RL_node_list = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+        obs = self._get_observation(RL_node_list)
         action = self.agents.step(obs, self.test)
-        for i, node in enumerate(self.node_name):
-            if self.curr_action[node] == action[i]:
-                self._set_green_phase(node)
+        for i, node in enumerate(RL_node_list):
+            node_name = self.node_name[node]
+            if self.curr_action[node_name] == action[i]:
+                self._set_green_phase(node_name)
             else:
-                self._set_yellow_phase(node)
-            self.curr_action[node] = action[i]
-        # get attention_score
-        if self.agent_type != 'IQL':
-            if self.curr_step == 0:
-                self.attention_score = []
-            self.attention_score.append(self.agents.get_attention_score(4))
+                self._set_yellow_phase(node_name)
+            self.curr_action[node_name] = action[i]
+        # # get attention_score
+        # if self.agent_type != 'IQL':
+        #     if self.curr_step == 0:
+        #         self.attention_score = []
+        #     self.attention_score.append(self.agents.get_attention_score(4))
 
         # 执行黄灯
         self._simulate(self.yellow_duration)
-        for node in self.node_dict:
-            self._set_green_phase(node)
+        for i, node in enumerate(RL_node_list):
+            node_name = self.node_name[node]
+            self._set_green_phase(node_name)
         # 执行绿灯
         self._simulate(self.green_duration)
         is_done = False
@@ -245,7 +251,7 @@ class TSC_Env:
             reward.append(node_reward[-1])
 
         # get next state
-        next_obs = self._get_observation()
+        next_obs = self._get_observation(RL_node_list)
         if self.max_step == self.curr_step:
             is_done = True
         if self.train_idx[self.curr_control_step]:
@@ -325,11 +331,12 @@ class TSC_Env:
 
     # get observation
     # pre=True: get last observation
-    def _get_observation(self, pre=False):
+    def _get_observation(self, node_list, pre=False):
         obs = []
         for i, node in enumerate(self.node_name):
             obs.append(self.obs[node][1 - pre: self.seq_len - pre])
         obs = np.stack(obs, axis=1)
+        obs = obs[:, node_list]
         return obs
 
     # get observation based on agent-type
@@ -425,14 +432,14 @@ class TSC_Env:
         plt.plot(x, test_avg_reward, color=colors[0], label='test')
         plt.legend()
         num = self.port - 4300
-        fig_name = ('./Logs/test%d/reward_' % num) + self.name + self.agent_type + '.png'
+        fig_name = ('./Logs/Logs_New/test%d/reward_' % num) + self.name + self.agent_type + '.png'
         plt.savefig(fig_name)
         plt.show()
 
         step_data = pd.DataFrame(self.step_data)
-        step_data.to_csv(('./Logs/test%d/' % num) + ('%s_%s_step.csv' % (self.name, self.agent_type)))
+        step_data.to_csv(('./Logs/Logs_New/test%d/' % num) + ('%s_%s_step.csv' % (self.name, self.agent_type)))
         metric_data = pd.DataFrame(self.metric_data)
-        metric_data.to_csv('./Logs/test%d/' % num + ('%s_%s_metric.csv' % (self.name, self.agent_type)))
+        metric_data.to_csv('./Logs/Logs_New/test%d/' % num + ('%s_%s_metric.csv' % (self.name, self.agent_type)))
 
         # if self.agent_type != 'IQL':
         #     plt.figure()
