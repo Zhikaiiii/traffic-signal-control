@@ -9,7 +9,7 @@ import pandas as pd
 import logging
 from sumolib import checkBinary
 from Agents.Attention_Agents import Attention_Agents
-from Agents.Basic_Agents import Basic_Agents
+from Agents.IQL_Agents import IQL_Agents
 from Agents.Double_Attention_Agents import Double_Attention_Agents
 from Agents.LSTM_Attention_Agents import LSTM_Attention_Agents
 from tqdm import tqdm
@@ -38,6 +38,11 @@ PHASE_MAP = {0: 'GGGrrrrrGGGrrrrr', 1: 'yyyrrrrryyyrrrrr',
              4: 'rrrrGGGrrrrrGGGr', 5: 'rrrryyyrrrrryyyr',
              6: 'rrrrrrrGrrrrrrrG', 7: 'rrrrrrryrrrrrrry'}
 
+
+# PHASE_MAP = {0: 'GGrrrrGGrrrr', 1: 'yyrrrryyrrrr',
+#              2: 'rrGrrrrrGrrr', 3: 'rryrrrrryrrr',
+#              4: 'rrrGGrrrrGGr', 5: 'rrryyrrrryyr',
+#              6: 'rrrrrGrrrrrG', 7: 'rrrrryrrrrry'}
 
 # traffic light
 class Traffic_Node:
@@ -129,11 +134,12 @@ class TSC_Env:
         self._init_node()
 
         # set agent
-        input_dim = [self.num_states_phase, self.num_states_obs, self.num_states_lanes]
+        # input_dim = [self.num_states_phase, self.num_states_obs, self.num_states_lanes]
+        input_dim = 5
         hidden_dim = para_config['hidden_dim']
-        output_dim = self.num_actions + 1
+        output_dim = self.num_actions
         if self.agent_type == 'IQL':
-            self.agents = Basic_Agents(self.para_config, len(self.node_name), input_dim, hidden_dim, output_dim)
+            self.agents = IQL_Agents(self.para_config, len(self.node_name), input_dim, hidden_dim, output_dim)
         elif self.agent_type == 'IQL_Attention':
             self.agents = Attention_Agents(self.para_config, len(self.node_name), input_dim, hidden_dim, output_dim,
                                            self.neighbor_map, self.node_name)
@@ -151,7 +157,8 @@ class TSC_Env:
             # 订阅junction中每个lane的信息
             traci.junction.subscribeContext(node_name, tc.CMD_GET_LANE_VARIABLE, 100,
                                             [tc.VAR_WAITING_TIME, tc.LAST_STEP_MEAN_SPEED,
-                                             tc.LAST_STEP_VEHICLE_HALTING_NUMBER])
+                                             tc.LAST_STEP_VEHICLE_HALTING_NUMBER, tc.LAST_STEP_VEHICLE_NUMBER])
+
         for node_name in traci.trafficlight.getIDList():
             if node_name in self.neighbor_map:
                 neighbor = self.neighbor_map[node_name]
@@ -262,10 +269,10 @@ class TSC_Env:
         waiting_time, speed, queue_length = [], [], []
         for node in self.node_name:
             # obs, phase = self._get_local_observation(node)
-            obs, phase = self.obs[node][-1, :-1], self.obs[node][-1, -1]
+            obs, phase = self.obs[node][-1, :, :-1], self.obs[node][-1, :, -1]
             waiting_time.append(np.sum(obs[:, 0]))
-            speed.append(np.mean(obs[:, 1]))
-            queue_length.append(np.sum(obs[:, 2]))
+            speed.append(np.mean(obs[:, 3]))
+            queue_length.append(np.sum(obs[:, 1]))
 
         self.step_sum_waiting_time.append(waiting_time)
         self.step_avg_speed.append(speed)
@@ -286,22 +293,35 @@ class TSC_Env:
     # get local observation of intersection
     def _get_local_observation(self, node_name):
         ob_res = traci.junction.getContextSubscriptionResults(node_name)
+        all_lane = traci.trafficlight.getControlledLanes(node_name)
         obs = []
-        for lane, res in ob_res.items():
-            f_node, t_node, _ = lane.split('_')
-            if t_node == node_name and (f_node[0] == 'I' or f_node[0] == 'P'):
-                waiting_time, mean_speed, queue_length = \
-                    res[tc.VAR_WAITING_TIME] / 500, res[tc.LAST_STEP_MEAN_SPEED] / 20, \
-                    res[tc.LAST_STEP_VEHICLE_HALTING_NUMBER] / 40
-                vehicle_num = traci.lanearea.getLastStepVehicleNumber(lane) / 40
-                obs_lane = [waiting_time, mean_speed, queue_length, vehicle_num]
-                obs.append(obs_lane)
+        for lane in all_lane:
+            res = ob_res[lane]
+            # for lane, res in ob_res.items():
+            #     f_node, t_node, _ = lane.split('_')
+            # if t_node == node_name and (f_node[0] == 'I' or f_node[0] == 'P'):
+            waiting_time, queue_length, vehicle_num, mean_speed = \
+                res[tc.VAR_WAITING_TIME] / 500, res[tc.LAST_STEP_VEHICLE_HALTING_NUMBER] / 40, \
+                res[tc.LAST_STEP_VEHICLE_NUMBER] / 40, res[tc.LAST_STEP_MEAN_SPEED] / 20
+            obs_lane = [waiting_time, queue_length, vehicle_num, mean_speed]
+            obs.append(obs_lane)
         obs = np.asarray(obs)
-        phase = np.zeros(shape=(1, int(len(self.phase_map) / 2)))
+        # remove duplicate row
+        idx = [1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15]
+        obs = obs[idx]
+        # represent in phase
+        obs_new = []
+        idx2 = [[0, 1, 6, 7], [2, 8], [3, 4, 9, 10], [5, 11]]
+        for i in idx2:
+            obs_phase = np.sum(obs[i, 0:3], axis=0)
+            obs_phase = np.append(obs_phase, np.average(obs[i, 3]))
+            obs_new.append(obs_phase)
+        obs_new = np.asarray(obs_new)
+        phase = np.zeros(shape=(int(len(self.phase_map) / 2), 1))
         current_phase = int(traci.trafficlight.getPhase(node_name) / 2)
-        phase[0, current_phase] = 1
-        obs = np.concatenate((obs, phase))
-        return obs
+        phase[current_phase, 0] = 1
+        obs_all = np.concatenate((obs_new, phase), axis=1)
+        return obs_all
 
     # get observation
     # pre=True: get last observation
@@ -414,61 +434,45 @@ class TSC_Env:
         metric_data = pd.DataFrame(self.metric_data)
         metric_data.to_csv('./Logs/test%d/' % num + ('%s_%s_metric.csv' % (self.name, self.agent_type)))
 
-        if self.agent_type != 'IQL':
-            plt.figure()
-            plt.xlabel('episode')
-            plt.ylabel('attention score')
-            labels = ['I1', 'I3', 'I4', 'I5', 'I7']
-            all_attention_score = np.stack(self.episode_attention_score, axis=0)
-            for i in range(all_attention_score.shape[1]):
-                plt.plot(x, all_attention_score[:, i], label=labels[i])
-            plt.legend()
-            fig_name = ('./Logs/test%d/attention_' % num) + self.name + '.png'
-            plt.savefig(fig_name)
-            plt.show()
+        # if self.agent_type != 'IQL':
+        #     plt.figure()
+        #     plt.xlabel('episode')
+        #     plt.ylabel('attention score')
+        #     labels = ['I1', 'I3', 'I4', 'I5', 'I7']
+        #     all_attention_score = np.stack(self.episode_attention_score, axis=0)
+        #     for i in range(all_attention_score.shape[1]):
+        #         plt.plot(x, all_attention_score[:, i], label=labels[i])
+        #     plt.legend()
+        #     fig_name = ('./Logs/test%d/attention_' % num) + self.name + '.png'
+        #     plt.savefig(fig_name)
+        #     plt.show()
 
-        plt.figure()
-        plt.xlabel('episode')
-        plt.ylabel('mean')
-        i = 0
-        for k in self.para:
-            data = np.asarray(self.para[k])
-            plt.plot(x, data[:, 0], label=k, color=colors[i])
-            i += 1
-        plt.legend()
-        fig_name = ('./Logs/test%d/mean_' % num) + self.name + '.png'
-        plt.savefig(fig_name)
-        plt.show()
+        # plt.figure()
+        # plt.xlabel('episode')
+        # plt.ylabel('mean')
+        # i = 0
+        # for k in self.para:
+        #     data = np.asarray(self.para[k])
+        #     plt.plot(x, data[:, 0], label=k, color=colors[i])
+        #     i += 1
+        # plt.legend()
+        # fig_name = ('./Logs/test%d/mean_' % num) + self.name + '.png'
+        # plt.savefig(fig_name)
+        # plt.show()
+        #
+        # plt.figure()
+        # plt.xlabel('episode')
+        # plt.ylabel('std')
+        # i = 0
+        # for k in self.para:
+        #     data = np.asarray(self.para[k])
+        #     plt.plot(x, data[:, 1], label=k, color=colors[i])
+        #     i += 1
+        # plt.legend()
+        # fig_name = ('./Logs/test%d/std_' % num) + self.name + '.png'
+        # plt.savefig(fig_name)
+        # plt.show()
 
-        plt.figure()
-        plt.xlabel('episode')
-        plt.ylabel('std')
-        i = 0
-        for k in self.para:
-            data = np.asarray(self.para[k])
-            plt.plot(x, data[:, 1], label=k, color=colors[i])
-            i += 1
-        plt.legend()
-        fig_name = ('./Logs/test%d/std_' % num) + self.name + '.png'
-        plt.savefig(fig_name)
-        plt.show()
-
-        if self.agent_type != 'IQL':
-            step_attention_score = np.concatenate(self.attention_score, axis=0)
-            plt.figure()
-            plt.xlabel('step')
-            plt.ylabel('attention score')
-            labels = ['I4', 'I1', 'I3', 'I5', 'I7']
-            for i in range(step_attention_score.shape[1]):
-                if i == 0:
-                    out = step_attention_score[::2, i]
-                else:
-                    out += step_attention_score[::2, i]
-                plt.plot(out, label=labels[i])
-            plt.legend()
-            fig_name = ('./Logs/test%d/step_attention_' % num) + self.name + '.png'
-            plt.savefig(fig_name)
-            plt.show()
 
     def close(self):
         traci.close()
@@ -497,8 +501,6 @@ class TSC_Env:
         if self.agent_type != 'IQL':
             attention_score = np.mean(np.concatenate(self.attention_score), axis=0)
             self.episode_attention_score.append(attention_score)
-
-
         if gui:
             app = 'sumo-gui'
         else:
@@ -515,18 +517,18 @@ class TSC_Env:
             # 订阅junction中每个lane的信息
             traci.junction.subscribeContext(node_name, tc.CMD_GET_LANE_VARIABLE, 100,
                                             [tc.VAR_WAITING_TIME, tc.LAST_STEP_MEAN_SPEED,
-                                             tc.LAST_STEP_VEHICLE_HALTING_NUMBER])
+                                             tc.LAST_STEP_VEHICLE_HALTING_NUMBER, tc.LAST_STEP_VEHICLE_NUMBER])
             # if self.curr_episode > 50 and self.agent_type != 'IQL':
             #     self.agents.get_agent(i).update_epsilon_exploration(self.curr_episode-50)
             # else:
             #     self.agents.get_agent(i).update_epsilon_exploration(self.curr_episode)
-            self.agents.get_agent(i).update_epsilon_exploration(self.curr_episode)
+            self.agents.learner.update_epsilon_exploration(self.curr_episode)
 
     def run(self):
         for i in tqdm(range(self.num_episode)):
             while not self.step():
                 pass
-            train_reward, test_reward, waiting_time, speed, queue_length = env.get_episode_reward()
+            train_reward, test_reward, waiting_time, speed, queue_length = self.get_episode_reward()
             print('episode:', i)
             print('train_reward:', train_reward)
             print('test_reward', test_reward)
@@ -539,6 +541,3 @@ class TSC_Env:
     #     for node in self.node_name:
     #         model_name = './models/model_' + node + '.pkl'
     #         self.node_agent[node].load_q_network(model_name)
-
-
-

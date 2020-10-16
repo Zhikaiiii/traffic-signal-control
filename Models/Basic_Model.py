@@ -3,6 +3,33 @@ import torch.nn.functional as F
 import torch.nn as nn
 import numpy as np
 
+'''
+x:[batch_size, num_agents, num_phases, num_states]
+'''
+class Base_Model(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super().__init__()
+        self.linear1 = nn.Linear(input_dim, hidden_dim)
+        self.relu1 = nn.ReLU()
+        self.linear2 = nn.Linear(hidden_dim, 1)
+        self.softmax = nn.Softmax(dim=-1)
+        self.linear3 = nn.Linear(output_dim, hidden_dim)
+        self.relu2 = nn.ReLU()
+        self.linear4 = nn.Linear(hidden_dim, output_dim + 1)
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+
+    def forward(self, x):
+        x = torch.from_numpy(x).float().to(self.device)
+        x1 = self.linear1(x)
+        x2 = self.relu1(x1)
+        x3 = self.linear2(x2)
+        x3 = x3.squeeze(dim=-1)
+        score = self.softmax(x3)
+        out = self.linear3(score)
+        out = self.relu2(out)
+        out = self.linear4(out)
+        return out
+
 
 class Embedding_Layer(nn.Module):
     def __init__(self, input_dim, output_dim):
